@@ -1,0 +1,35 @@
+<?php
+
+use Illuminate\Database\Migrations\Migration;
+use Illuminate\Database\Schema\Blueprint;
+use Illuminate\Support\Facades\Schema;
+
+return new class extends Migration
+{
+    /**
+     * Run the migrations.
+     *
+     * Schema only; managing services (CRUD) is ISSUE-7.
+     */
+    public function up(): void
+    {
+        Schema::create('services', function (Blueprint $table) {
+            $table->id();
+            $table->string('name');
+            $table->text('description')->nullable();
+            $table->unsignedSmallInteger('duration_minutes');
+            $table->unsignedSmallInteger('buffer_minutes')->default(0);
+            $table->unsignedInteger('price_cents');
+            $table->boolean('is_active')->default(true);
+            $table->timestamps();
+        });
+    }
+
+    /**
+     * Reverse the migrations.
+     */
+    public function down(): void
+    {
+        Schema::dropIfExists('services');
+    }
+};

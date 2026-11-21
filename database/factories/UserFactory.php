@@ -2,6 +2,7 @@
 
 namespace Database\Factories;
 
+use App\Enums\UserRole;
 use App\Models\User;
 use Illuminate\Database\Eloquent\Factories\Factory;
 use Illuminate\Support\Facades\Hash;
@@ -31,6 +32,32 @@ class UserFactory extends Factory
             'password' => static::$password ??= Hash::make('password'),
             'remember_token' => Str::random(10),
         ];
+    }
+
+    public function customer(): static
+    {
+        return $this->withRole(UserRole::Customer);
+    }
+
+    /**
+     * A user with the employee role. Use EmployeeFactory to also create the
+     * bookable employee profile.
+     */
+    public function employee(): static
+    {
+        return $this->withRole(UserRole::Employee);
+    }
+
+    public function admin(): static
+    {
+        return $this->withRole(UserRole::Admin);
+    }
+
+    public function withRole(UserRole $role): static
+    {
+        return $this->state(fn (array $attributes) => [
+            'role' => $role,
+        ]);
     }
 
     /**

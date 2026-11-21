@@ -28,7 +28,18 @@ Short records of the choices that shape this project, and why they were made.
 
 **Why:** Daylight-saving changes make local times ambiguous (02:00-03:00 on the switch weekends). Storing UTC avoids that, and slot calculation in local time keeps "09:00" meaning 09:00 for the customer. Details and tests are tracked in ISSUE-14.
 
-## 4. Tooling
+## 4. Authorization: role middleware + policies
+
+**Decision:** Two layers, each with one job.
+- The `role` middleware (`role:admin`, `role:employee,admin`) guards whole areas, such as the admin section.
+- Policies decide per record: `BookingPolicy::view` (customer: own bookings, employee: bookings in their own agenda, admin: all) and `EmployeePolicy::viewAgenda` (employee: own agenda, admin: all).
+- Lists never load everything and filter afterwards. They use `Booking::visibleTo($user)`, which applies the same rules in SQL, and a test checks that the scope and the policy agree.
+
+**Why:** Role checks alone cannot express "own" bookings, and policies alone make area-wide rules repetitive. Denied records answer **404, not 403**, so a user cannot probe which booking or agenda ids exist.
+
+**Note:** an employee who also books as a customer is not supported. The role is a single value, and the employee view shows their agenda, not bookings they made themselves.
+
+## 5. Tooling
 
 - **Tests:** Pest (on top of PHPUnit).
 - **Static analysis:** Larastan, level 6.
