@@ -9,6 +9,10 @@ use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Foundation\Auth\User as Authenticatable;
 use Illuminate\Notifications\Notifiable;
 
+/**
+ * @property UserRole $role
+ * @property string|null $phone
+ */
 class User extends Authenticatable
 {
     /** @use HasFactory<UserFactory> */
