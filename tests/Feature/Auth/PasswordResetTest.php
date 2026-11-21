@@ -38,6 +38,23 @@ it('does not reveal whether an email address has an account', function () {
     Notification::assertNothingSent();
 });
 
+it('sends the reset mail in Dutch', function () {
+    app()->setLocale('nl');
+    $user = User::factory()->create();
+    $mail = (new ResetPassword('token'))->toMail($user);
+
+    expect($mail->subject)->toBe('Wachtwoord opnieuw instellen')
+        ->and($mail->actionText)->toBe('Nieuw wachtwoord instellen');
+});
+
+it('only overrides the changed English password messages', function () {
+    app()->setLocale('en');
+
+    expect(__('passwords.sent'))->toStartWith('If an account exists')
+        // Still provided by the framework, so the override file is merged, not replacing.
+        ->and(__('passwords.token'))->toBe('This password reset token is invalid.');
+});
+
 it('validates the email address on the forgot password form', function () {
     post(route('password.email'), ['email' => 'geen-email'])
         ->assertSessionHasErrors('email');

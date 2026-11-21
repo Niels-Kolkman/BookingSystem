@@ -108,6 +108,16 @@ it('keeps the input but not the password after a validation error', function () 
         ->assertSessionMissing('_old_input.password');
 });
 
+it('shows validation errors in Dutch', function () {
+    app()->setLocale('nl');
+
+    post(route('register'), registrationData(['email' => 'geen-email', 'password' => 'kort1', 'password_confirmation' => 'kort1']))
+        ->assertSessionHasErrors([
+            'email' => 'E-mailadres moet een geldig e-mailadres zijn.',
+            'password' => 'Wachtwoord moet minimaal 8 tekens bevatten.',
+        ]);
+});
+
 it('redirects logged in users away from the registration form', function () {
     actingAs(User::factory()->create())
         ->get(route('register'))
