@@ -19,6 +19,15 @@
 
                 <div class="flex items-center gap-4 text-sm">
                     @auth
+                        <a href="{{ route('bookings.index') }}" class="hover:underline">
+                            {{ auth()->user()->isCustomer() ? 'Mijn boekingen' : 'Boekingen' }}
+                        </a>
+                        @if (auth()->user()->isEmployee())
+                            <a href="{{ route('agenda') }}" class="hover:underline">Mijn agenda</a>
+                        @endif
+                        @if (auth()->user()->isAdmin())
+                            <a href="{{ route('admin.dashboard') }}" class="hover:underline">Beheer</a>
+                        @endif
                         <a href="{{ route('dashboard') }}" class="hover:underline">Mijn account</a>
                         <form method="POST" action="{{ route('logout') }}">
                             @csrf
