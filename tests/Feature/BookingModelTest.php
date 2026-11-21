@@ -62,4 +62,4 @@ it('has role helpers on the user', function (UserRole $role) {
         ->and($user->isAdmin())->toBe($role === UserRole::Admin)
         ->and($user->hasRole($role))->toBeTrue()
         ->and($user->hasRole(...array_filter(UserRole::cases(), fn ($r) => $r !== $role)))->toBeFalse();
-})->with(UserRole::cases());
+})->with(fn () => UserRole::cases());
