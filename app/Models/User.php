@@ -3,6 +3,7 @@
 namespace App\Models;
 
 // use Illuminate\Contracts\Auth\MustVerifyEmail;
+use App\Enums\UserRole;
 use Database\Factories\UserFactory;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Foundation\Auth\User as Authenticatable;
@@ -16,12 +17,25 @@ class User extends Authenticatable
     /**
      * The attributes that are mass assignable.
      *
+     * `role` is intentionally not fillable, so a request can never promote
+     * itself to employee or admin. Set it explicitly where needed.
+     *
      * @var list<string>
      */
     protected $fillable = [
         'name',
         'email',
         'password',
+        'phone',
+    ];
+
+    /**
+     * Default attribute values, matching the database defaults.
+     *
+     * @var array<string, mixed>
+     */
+    protected $attributes = [
+        'role' => 'customer',
     ];
 
     /**
@@ -44,6 +58,12 @@ class User extends Authenticatable
         return [
             'email_verified_at' => 'datetime',
             'password' => 'hashed',
+            'role' => UserRole::class,
         ];
+    }
+
+    public function isCustomer(): bool
+    {
+        return $this->role === UserRole::Customer;
     }
 }
