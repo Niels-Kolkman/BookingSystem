@@ -39,7 +39,17 @@ Short records of the choices that shape this project, and why they were made.
 
 **Note:** an employee who also books as a customer is not supported. The role is a single value, and the employee view shows their agenda, not bookings they made themselves.
 
-## 5. Tooling
+## 5. Services: deactivate instead of delete, prices in cents
+
+**Decision:** Admins manage services under `/admin/services` (ISSUE-7).
+- A service that has bookings cannot be deleted; the admin deactivates it instead. Inactive services cannot be booked (`Service::active()`), but existing bookings keep pointing at them.
+- Prices are entered in euros (`25`, `25,50` or `25.50`) and stored as integer cents. The conversion is string-based, with no floats involved.
+- Duration is 5-480 minutes, the buffer after the appointment 0-120 minutes. `Service::blockedMinutes()` (duration + buffer) is what the slot calculation builds on.
+- Editing a service only affects new bookings: a booking stores its own snapshot of duration and price.
+
+**Why:** Deleting a booked service would break booking history, and the foreign key forbids it anyway. Cents avoid rounding errors in totals.
+
+## 6. Tooling
 
 - **Tests:** Pest (on top of PHPUnit).
 - **Static analysis:** Larastan, level 6.

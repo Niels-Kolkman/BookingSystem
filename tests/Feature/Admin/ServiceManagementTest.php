@@ -91,8 +91,8 @@ describe('index', function () {
         Booking::factory()->for($booked)->create();
 
         actingAs(admin())->get(route('admin.services.index'))
-            ->assertSee(route('admin.services.destroy', $free))
-            ->assertDontSee(route('admin.services.destroy', $booked));
+            ->assertSee('action="'.route('admin.services.destroy', $free).'"', false)
+            ->assertDontSee('action="'.route('admin.services.destroy', $booked).'"', false);
     });
 });
 
@@ -136,9 +136,10 @@ describe('create', function () {
             ->post(route('admin.services.store'), serviceInput(['name' => '  Knippen  ', 'description' => '   ']))
             ->assertRedirect();
 
-        expect(Service::sole())
-            ->name->toBe('Knippen')
-            ->description->toBeNull();
+        $service = Service::sole();
+
+        expect($service->name)->toBe('Knippen')
+            ->and($service->description)->toBeNull();
     });
 
     it('converts euro amounts to cents without rounding errors', function (string $price, int $cents) {
@@ -200,9 +201,10 @@ describe('create', function () {
             ]))
             ->assertSessionHasNoErrors();
 
-        expect(Service::sole())
-            ->duration_minutes->toBe(ServiceRequest::MAX_DURATION_MINUTES)
-            ->buffer_minutes->toBe(0);
+        $service = Service::sole();
+
+        expect($service->duration_minutes)->toBe(ServiceRequest::MAX_DURATION_MINUTES)
+            ->and($service->buffer_minutes)->toBe(0);
     });
 
     it('shows validation messages in Dutch', function () {
@@ -226,9 +228,10 @@ describe('create', function () {
             ->post(route('admin.services.store'), serviceInput(['id' => 999, 'price_cents' => 1]))
             ->assertRedirect();
 
-        expect(Service::sole())
-            ->id->not->toBe(999)
-            ->price_cents->toBe(2550);
+        $service = Service::sole();
+
+        expect($service->id)->not->toBe(999)
+            ->and($service->price_cents)->toBe(2550);
     });
 });
 
@@ -256,11 +259,12 @@ describe('edit', function () {
             ->assertRedirect(route('admin.services.index'))
             ->assertSessionHas('status', 'Dienst "Knippen kort" is opgeslagen.');
 
-        expect($service->fresh())
-            ->name->toBe('Knippen kort')
-            ->duration_minutes->toBe(45)
-            ->buffer_minutes->toBe(5)
-            ->price_cents->toBe(3000);
+        $service->refresh();
+
+        expect($service->name)->toBe('Knippen kort')
+            ->and($service->duration_minutes)->toBe(45)
+            ->and($service->buffer_minutes)->toBe(5)
+            ->and($service->price_cents)->toBe(3000);
     });
 
     it('can deactivate a service', function () {
@@ -297,9 +301,10 @@ describe('edit', function () {
             ]))
             ->assertRedirect();
 
-        expect($booking->fresh())
-            ->duration_minutes->toBe(30)
-            ->price_cents->toBe(2500);
+        $booking->refresh();
+
+        expect($booking->duration_minutes)->toBe(30)
+            ->and($booking->price_cents)->toBe(2500);
     });
 
     it('returns 404 for an unknown service', function () {
