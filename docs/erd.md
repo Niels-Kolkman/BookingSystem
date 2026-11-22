@@ -130,8 +130,15 @@ The customer's own double-booking check uses `starts_at`/`ends_at` only, because
 ### Which bookings block a slot
 `requested` and `confirmed` block their time range. `cancelled` frees it. `completed` and `no_show` are in the past and never block new bookings. Allowed status transitions are defined in ISSUE-18.
 
+### Which employee can perform which service
+`employee_service` links employees to the services they can perform (ISSUE-8). Admins set the links on the service form; an unchecked employee is unlinked. The form only accepts existing employees, each once, and the composite primary key rejects duplicates in the database as well.
+
+An employee can be booked for a service only when `Employee::canPerform($service)` is true: the employee is active and linked to the service. `Employee::active()->offering($service)` returns the employees to offer for a service. The slot calculation (ISSUE-11) and booking creation (ISSUE-12) must use these, so a request for an unlinked or inactive employee is rejected server side.
+
+Unlinking an employee does not touch existing bookings; it only prevents new ones. An active service without an active linked employee cannot be booked, and the admin service overview warns about that.
+
 ### Deleting data
-Employees and services are **deactivated** (`is_active = false`), not deleted, because bookings reference them. Foreign keys from `bookings` use `RESTRICT` on delete. Deleting a user is out of scope for now. `employee_service`, `working_hours` and `schedule_exceptions` cascade when their employee is deleted.
+Employees and services are **deactivated** (`is_active = false`), not deleted, because bookings reference them. Foreign keys from `bookings` use `RESTRICT` on delete. Deleting a user is out of scope for now. `employee_service`, `working_hours` and `schedule_exceptions` cascade when their employee is deleted; `employee_service` also cascades when a service (without bookings) is deleted.
 
 ## Indexes
 

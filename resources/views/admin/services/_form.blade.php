@@ -62,3 +62,43 @@
         Actief (klanten kunnen deze dienst boeken)
     </label>
 </div>
+
+@php
+    /** @var \Illuminate\Support\Collection<int, \App\Models\Employee> $employees */
+    $checkedEmployeeIds = array_map('intval', (array) old('employee_ids', $linkedEmployeeIds));
+    // Errors on single entries (employee_ids.0, ...) are shown as one message.
+    $employeeError = $errors->first('employee_ids') ?: $errors->first('employee_ids.*');
+@endphp
+
+<fieldset class="mb-6" @if ($employeeError) aria-describedby="employee_ids-error" @endif>
+    <legend class="mb-1 block text-sm font-medium">Medewerkers die deze dienst uitvoeren</legend>
+
+    @if ($employees->isEmpty())
+        <p class="text-sm text-gray-600">Er zijn nog geen medewerkers.</p>
+    @else
+        <p class="mb-2 text-xs text-gray-500">Klanten kunnen deze dienst alleen boeken bij de aangevinkte, actieve medewerkers.</p>
+        <ul class="space-y-1">
+            @foreach ($employees as $employee)
+                <li>
+                    <label class="flex items-center gap-2 text-sm">
+                        <input
+                            type="checkbox"
+                            name="employee_ids[]"
+                            value="{{ $employee->id }}"
+                            @checked(in_array($employee->id, $checkedEmployeeIds, true))
+                            class="rounded border-gray-300"
+                        >
+                        {{ $employee->display_name }}
+                        @unless ($employee->is_active)
+                            <span class="rounded bg-gray-200 px-1.5 py-0.5 text-xs text-gray-700">inactief</span>
+                        @endunless
+                    </label>
+                </li>
+            @endforeach
+        </ul>
+    @endif
+
+    @if ($employeeError)
+        <p id="employee_ids-error" class="mt-1 text-sm text-red-600">{{ $employeeError }}</p>
+    @endif
+</fieldset>
