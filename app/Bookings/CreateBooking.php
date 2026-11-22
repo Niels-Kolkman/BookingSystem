@@ -31,9 +31,14 @@ use Illuminate\Support\Facades\DB;
  * Checks 2 and 3 come before 4 so the customer gets the specific reason;
  * AvailableSlots would refuse an employee overlap as well.
  *
- * Checks and insert run in one transaction. Serialising simultaneous
- * requests for the same employee (lockForUpdate on the employee row,
- * docs/erd.md "Concurrency") is ISSUE-13.
+ * Simultaneous requests (ISSUE-13, docs/erd.md "Concurrency"): checks and
+ * insert run in one transaction that first locks the employee row and then
+ * the customer row (SELECT ... FOR UPDATE). A second request for the same
+ * employee or the same customer waits for the first to commit and then
+ * sees its booking, so exactly one of them succeeds. Requests for other
+ * employees and customers are not held up. The order (employee, then
+ * customer) is fixed so two requests never wait on each other in a cycle.
+ * SQLite ignores lockForUpdate(); the guarantee needs MySQL/MariaDB.
  */
 final readonly class CreateBooking
 {
@@ -57,6 +62,8 @@ final readonly class CreateBooking
         $blockedUntil = $endsAt->addMinutes($service->buffer_minutes);
 
         return DB::transaction(function () use ($customer, $service, $employee, $startsAt, $endsAt, $blockedUntil, $notes): Booking {
+            $this->lockAgendas($employee, $customer);
+
             if ($employee->bookings()->blockingBetween($startsAt, $blockedUntil)->exists()) {
                 throw BookingRefused::employeeBusy();
             }
@@ -85,6 +92,21 @@ final readonly class CreateBooking
 
             return $booking;
         });
+    }
+
+    /**
+     * Holds the employee's and the customer's row until the transaction
+     * ends, so the overlap checks below cannot be passed by two requests at
+     * once. Always employee first, then customer (see the class comment).
+     *
+     * These must be the first queries of the transaction: InnoDB takes the
+     * REPEATABLE READ snapshot at the first plain read, so only reads after
+     * the lock are sure to see a booking another request just committed.
+     */
+    private function lockAgendas(Employee $employee, User $customer): void
+    {
+        Employee::query()->whereKey($employee->getKey())->lockForUpdate()->value('id');
+        User::query()->whereKey($customer->getKey())->lockForUpdate()->value('id');
     }
 
     private function offeredSlot(Service $service, Employee $employee, CarbonImmutable $startsAt): ?Slot

@@ -1,5 +1,6 @@
 <?php
 
+use Illuminate\Foundation\Testing\DatabaseTruncation;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Tests\TestCase;
 
@@ -17,3 +18,14 @@ use Tests\TestCase;
 pest()->extend(TestCase::class)
     ->use(RefreshDatabase::class)
     ->in('Feature');
+
+/*
+| Concurrency tests (ISSUE-13) use a second database connection that must
+| see the test data, so they cannot run inside RefreshDatabase's
+| transaction. Their data is committed and truncated instead. They only
+| run on MySQL/MariaDB and skip themselves on SQLite.
+*/
+
+pest()->extend(TestCase::class)
+    ->use(DatabaseTruncation::class)
+    ->in('Concurrency');
