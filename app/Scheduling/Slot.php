@@ -35,4 +35,15 @@ final readonly class Slot
     {
         return LocalTime::time($this->startsAt);
     }
+
+    /**
+     * The start as booking input (ISSUE-15): local time with its numeric
+     * offset, e.g. "2026-12-01T09:15:00+01:00", the format
+     * StoreBookingRequest accepts. The offset keeps the two 02:30s of the
+     * night the clock goes back apart.
+     */
+    public function inputValue(): string
+    {
+        return $this->localStart()->toIso8601String();
+    }
 }

@@ -27,6 +27,16 @@ final class BookingRefused extends RuntimeException
         parent::__construct($message);
     }
 
+    /**
+     * Whether the time was taken by another booking (of the employee or of
+     * the customer) rather than never being bookable. The booking page
+     * (ISSUE-15) answers these with 409 and reloads the free times.
+     */
+    public function isConflict(): bool
+    {
+        return in_array($this->reason, [self::REASON_EMPLOYEE_BUSY, self::REASON_CUSTOMER_BUSY], true);
+    }
+
     /** Inactive service, or an employee who is inactive or not linked to it. */
     public static function notBookable(): self
     {
