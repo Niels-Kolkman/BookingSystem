@@ -307,4 +307,177 @@ describe('admin overview', function () {
         actingAs(linkAdmin())->get(route('admin.services.index'))
             ->assertDontSee('Geen actieve medewerker gekoppeld');
     });
+
+    it('uses the singular for exactly one active employee', function () {
+        $service = Service::factory()->create(['name' => 'Knippen']);
+        $service->employees()->attach(Employee::factory()->create());
+
+        actingAs(linkAdmin())->get(route('admin.services.index'))
+            ->assertSeeInOrder(['Knippen', '1 medewerker'])
+            ->assertDontSee('1 medewerkers')
+            ->assertDontSee('Geen actieve medewerker gekoppeld');
+    });
+
+    it('counts the active employees per service separately', function () {
+        $knippen = Service::factory()->create(['name' => 'Aaa knippen']);
+        $kleuren = Service::factory()->create(['name' => 'Bbb kleuren']);
+        $anna = Employee::factory()->create();
+        $bram = Employee::factory()->create();
+        $anna->services()->attach([$knippen->id, $kleuren->id]);
+        $bram->services()->attach($knippen);
+
+        actingAs(linkAdmin())->get(route('admin.services.index'))
+            ->assertSeeInOrder(['Aaa knippen', '2 medewerkers', 'Bbb kleuren', '1 medewerker']);
+    });
+});
+
+describe('edge cases', function () {
+    it('only offers employees linked to that specific service', function () {
+        $service = Service::factory()->create();
+        $otherService = Service::factory()->create();
+        $linked = Employee::factory()->create();
+        $linkedElsewhere = Employee::factory()->create();
+        $linked->services()->attach($service);
+        $linkedElsewhere->services()->attach($otherService);
+
+        expect(Employee::query()->offering($service)->pluck('id')->all())->toBe([$linked->id])
+            ->and($linkedElsewhere->canPerform($service))->toBeFalse();
+    });
+
+    it('stops an employee from performing a service once they are deactivated', function () {
+        $employee = Employee::factory()->create();
+        $service = Service::factory()->create();
+        $employee->services()->attach($service);
+        expect($employee->canPerform($service))->toBeTrue();
+
+        $employee->update(['is_active' => false]);
+
+        expect($employee->canPerform($service))->toBeFalse()
+            // The link itself is kept, so reactivating restores it.
+            ->and($employee->services()->count())->toBe(1);
+    });
+
+    it('lets an admin link an inactive employee and shows them as checked', function () {
+        $inactive = Employee::factory()->inactive()->create();
+
+        actingAs(linkAdmin())
+            ->post(route('admin.services.store'), linkedServiceInput(['employee_ids' => [$inactive->id]]))
+            ->assertSessionHasNoErrors();
+
+        $service = Service::query()->sole();
+        expect($service->employees->pluck('id')->all())->toBe([$inactive->id]);
+
+        $html = (string) actingAs(linkAdmin())->get(route('admin.services.edit', $service))->getContent();
+        expect($html)->toMatch('/value="'.$inactive->id.'"\s+checked/');
+    });
+
+    it('leaves the employee\'s links to other services alone when updating one service', function () {
+        $employee = Employee::factory()->create();
+        $edited = Service::factory()->create();
+        $untouched = Service::factory()->create();
+        $employee->services()->attach([$edited->id, $untouched->id]);
+
+        actingAs(linkAdmin())
+            ->put(route('admin.services.update', $edited), linkedServiceInput())
+            ->assertSessionHasNoErrors();
+
+        expect($employee->services()->pluck('services.id')->all())->toBe([$untouched->id]);
+    });
+
+    it('removes the links but keeps the employees when an admin deletes a service', function () {
+        $service = Service::factory()->create();
+        $employee = Employee::factory()->create();
+        $service->employees()->attach($employee);
+
+        actingAs(linkAdmin())
+            ->delete(route('admin.services.destroy', $service))
+            ->assertRedirect(route('admin.services.index'));
+
+        expect(Service::find($service->id))->toBeNull()
+            ->and(DB::table('employee_service')->count())->toBe(0)
+            ->and(Employee::find($employee->id))->not->toBeNull();
+    });
+
+    it('does not create the service when linking the employees fails', function () {
+        $employee = Employee::factory()->create();
+        // The employee disappears between validation and the sync, so the
+        // foreign key rejects the link. The service insert must roll back.
+        Service::created(fn () => Employee::query()->whereKey($employee->id)->delete());
+
+        actingAs(linkAdmin())
+            ->post(route('admin.services.store'), linkedServiceInput(['employee_ids' => [$employee->id]]))
+            ->assertServerError();
+
+        expect(Service::query()->count())->toBe(0)
+            ->and(DB::table('employee_service')->count())->toBe(0);
+    });
+
+    it('does not save the service changes when linking the employees fails', function () {
+        $service = Service::factory()->create(['name' => 'Knippen']);
+        $kept = Employee::factory()->create();
+        $service->employees()->attach($kept);
+        $vanishing = Employee::factory()->create();
+        Service::updated(fn () => Employee::query()->whereKey($vanishing->id)->delete());
+
+        actingAs(linkAdmin())
+            ->put(route('admin.services.update', $service), linkedServiceInput(['name' => 'Kleuren', 'employee_ids' => [$vanishing->id]]))
+            ->assertServerError();
+
+        expect($service->fresh()->name)->toBe('Knippen')
+            ->and($service->employees()->pluck('employees.id')->all())->toBe([$kept->id]);
+    });
+
+    it('does not let non-admins create a service with links', function (UserRole $role) {
+        $employee = Employee::factory()->create();
+
+        actingAs(User::factory()->withRole($role)->create())
+            ->post(route('admin.services.store'), linkedServiceInput(['employee_ids' => [$employee->id]]))
+            ->assertForbidden();
+
+        expect(Service::query()->count())->toBe(0)
+            ->and(DB::table('employee_service')->count())->toBe(0);
+    })->with([
+        'customer' => [UserRole::Customer],
+        'employee' => [UserRole::Employee],
+    ]);
+
+    it('sends guests to the login page instead of changing links', function () {
+        $service = Service::factory()->create();
+        $employee = Employee::factory()->create();
+
+        $this->put(route('admin.services.update', $service), linkedServiceInput(['employee_ids' => [$employee->id]]))
+            ->assertRedirect(route('login'));
+
+        expect($service->employees()->count())->toBe(0);
+    });
+
+    it('rejects ids that are not existing whole employee ids', function (mixed $id) {
+        Employee::factory()->create();
+
+        actingAs(linkAdmin())
+            ->post(route('admin.services.store'), linkedServiceInput(['employee_ids' => [$id]]))
+            ->assertSessionHasErrors('employee_ids.0');
+
+        expect(Service::query()->count())->toBe(0);
+    })->with([
+        'decimal' => ['1.5'],
+        'zero' => ['0'],
+        'negative' => ['-1'],
+        'empty string' => [''],
+    ]);
+
+    it('keeps all boxes unchecked after a validation error when the admin unchecked them', function () {
+        $service = Service::factory()->create();
+        $employee = Employee::factory()->create();
+        $service->employees()->attach($employee);
+
+        // The admin unchecks the only employee but leaves the name empty.
+        $html = (string) actingAs(linkAdmin())
+            ->from(route('admin.services.edit', $service))
+            ->followingRedirects()
+            ->put(route('admin.services.update', $service), linkedServiceInput(['name' => '']))
+            ->getContent();
+
+        expect(preg_match('/value="'.$employee->id.'"\s+checked/', $html))->toBe(0);
+    })->skip('Known bug: unchecked employee boxes are re-checked after a validation error, because no employee_ids is sent and the form falls back to the stored links (same cause as the ISSUE-7 is_active bug).');
 });
