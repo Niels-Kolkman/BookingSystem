@@ -2,5 +2,6 @@
 <x-layout title="Beheer">
     <ul class="list-disc space-y-1 pl-5 text-sm">
         <li><a href="{{ route('bookings.index') }}" class="hover:underline">Alle boekingen</a></li>
+        <li><a href="{{ route('admin.services.index') }}" class="hover:underline">Diensten</a></li>
     </ul>
 </x-layout>

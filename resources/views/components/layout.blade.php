@@ -52,6 +52,12 @@
                 </div>
             @endif
 
+            @if (session('error'))
+                <div role="alert" class="mb-6 rounded border border-red-200 bg-red-50 p-3 text-sm text-red-800">
+                    {{ session('error') }}
+                </div>
+            @endif
+
             {{ $slot }}
         </main>
     </body>
