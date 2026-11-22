@@ -3,7 +3,9 @@
 namespace App\Models;
 
 use App\Enums\Weekday;
+use App\Scheduling\DaySchedule;
 use Database\Factories\EmployeeFactory;
+use DateTimeInterface;
 use Illuminate\Database\Eloquent\Attributes\Scope;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Collection;
@@ -95,10 +97,22 @@ class Employee extends Model
     }
 
     /**
+     * Date-specific deviations from the weekly schedule (ISSUE-10): time off
+     * and extra hours, in date and time order.
+     *
+     * @return HasMany<ScheduleException, $this>
+     */
+    public function scheduleExceptions(): HasMany
+    {
+        return $this->hasMany(ScheduleException::class)
+            ->orderBy('date')
+            ->orderBy('starts_at');
+    }
+
+    /**
      * The blocks this employee normally works on the given weekday, in time
-     * order; empty on a day off. This is the regular schedule only: the slot
-     * calculation (ISSUE-11) still has to apply schedule exceptions
-     * (ISSUE-10) and existing bookings for a concrete date.
+     * order; empty on a day off. This is the regular schedule only; use
+     * scheduleOn() for a concrete date.
      *
      * @return Collection<int, WorkingHour>
      */
@@ -107,6 +121,17 @@ class Employee extends Model
         return $this->workingHours
             ->filter(fn (WorkingHour $block): bool => $block->weekday === $weekday)
             ->values();
+    }
+
+    /**
+     * The hours this employee works on a concrete local date: the weekly
+     * schedule with Dutch public holidays and schedule exceptions applied
+     * (ISSUE-10, see DaySchedule). The slot calculation (ISSUE-11) starts
+     * here and still has to subtract existing bookings.
+     */
+    public function scheduleOn(DateTimeInterface $localDate): DaySchedule
+    {
+        return DaySchedule::for($this, $localDate);
     }
 
     /**

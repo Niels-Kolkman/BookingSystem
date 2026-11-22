@@ -146,7 +146,25 @@ Unlinking an employee does not touch existing bookings; it only prevents new one
 - **Saving** replaces the whole schedule of that employee in one transaction. Existing bookings are not touched: a booking outside the new hours stays, it is only no longer offered as a new slot.
 - **Storage:** times are written as `HH:MM:00` and read as `HH:MM`, so SQLite and MySQL behave the same.
 
-The slot calculation (ISSUE-11) starts from `Employee::workingHoursOn(Weekday::fromDate($localDate))`, with `startMinutes()`/`endMinutes()` per block. It then applies `schedule_exceptions` (ISSUE-10) and existing bookings for that date, and converts to UTC (ISSUE-14).
+For a concrete date, use `Employee::scheduleOn($localDate)` (see *Schedule exceptions and public holidays* below), not `workingHoursOn()` directly.
+
+### Schedule exceptions and public holidays
+`schedule_exceptions` holds one-off deviations per employee and date (ISSUE-10). Admins manage them under *Beheer → Medewerkers → Uitzonderingen* (`/admin/employees/{employee}/exceptions`).
+
+- **Types:** `unavailable` (leave, sick, dentist) for the whole day (both times empty) or for a time range; `extra_hours` always with a time range.
+- **Ranges of days:** the form accepts a start date and an optional end date (at most 62 days). This creates one row per day, so every row stays a single date and deleting one day of a holiday is easy.
+- **Rules** (checked in `ScheduleExceptionRequest`): dates are `Y-m-d` and not in the past (today in `Europe/Amsterdam`); times are `HH:MM` and the end is after the start. Overlapping exceptions are allowed, because the result is merged anyway and is shown per date on the admin page.
+- **Dutch public holidays** are calculated in code (`App\Scheduling\DutchHolidays`: fixed dates, Easter-based dates, Koningsdag on 26 April when the 27th is a Sunday), not stored. `config/holidays.php` lists which holidays close the business; by default all of them except Goede Vrijdag and Bevrijdingsdag.
+- **Storage:** `date` is written as `Y-m-d` and read as midnight `Europe/Amsterdam`; times as for `working_hours`.
+
+`Employee::scheduleOn($localDate)` returns an `App\Scheduling\DaySchedule` with the working time of that date as sorted, non-overlapping `TimeRange`s (minutes since midnight). Precedence, from low to high:
+
+1. the weekly schedule for that weekday;
+2. a closed public holiday clears the weekly hours;
+3. `extra_hours` are added, also on a holiday (this is how someone works on Koningsdag);
+4. `unavailable` is removed last and always wins.
+
+Exceptions do not touch existing bookings: a booking on a new day off stays and must be moved or cancelled by hand. The slot calculation (ISSUE-11) starts from `scheduleOn($localDate)->ranges`, subtracts existing bookings and converts to UTC (ISSUE-14). Pass a local date: `scheduleOn()` only looks at the calendar date of its argument. When computing many dates, eager load `workingHours` and `scheduleExceptions` to avoid a query per day.
 
 ### Deleting data
 Employees and services are **deactivated** (`is_active = false`), not deleted, because bookings reference them. Foreign keys from `bookings` use `RESTRICT` on delete. Deleting a user is out of scope for now. `employee_service`, `working_hours` and `schedule_exceptions` cascade when their employee is deleted; `employee_service` also cascades when a service (without bookings) is deleted.
@@ -178,5 +196,4 @@ Locking the `employees` row serialises bookings per employee without blocking ot
 ## Open points
 
 - **Cancellation window** (ISSUE-16) is a single global value, so it lives in config for now. If it must differ per service it becomes a column on `services`.
-- **Dutch public holidays** (ISSUE-10) are not stored in a table. They are calculated in code and turned into `unavailable` exceptions, so employees can still opt in to work on a holiday.
 - **Status history** (who changed what, when) is not modelled. If it turns out to be needed for ISSUE-18, add a `booking_status_changes` table.
