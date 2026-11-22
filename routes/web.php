@@ -44,6 +44,10 @@ Route::middleware('auth')->group(function () {
     // policies decide per booking / per agenda. See BookingPolicy and
     // EmployeePolicy; lists are limited with Booking::visibleTo().
     Route::get('bookings', [BookingController::class, 'index'])->name('bookings.index');
+    // Booking a free slot (ISSUE-12); overlap rules live in CreateBooking.
+    Route::post('bookings', [BookingController::class, 'store'])
+        ->middleware(['role:customer', 'throttle:30,1'])
+        ->name('bookings.store');
     Route::get('bookings/{booking}', [BookingController::class, 'show'])
         ->middleware('can:view,booking')
         ->name('bookings.show');

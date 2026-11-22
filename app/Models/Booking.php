@@ -13,10 +13,11 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
 /**
- * An appointment. See docs/erd.md. Creating bookings is ISSUE-12.
+ * An appointment. See docs/erd.md.
  *
- * No attributes are mass assignable yet; ISSUE-12 decides what a request
- * may set.
+ * No attributes are mass assignable: bookings are created by
+ * App\Bookings\CreateBooking (ISSUE-12), which sets every attribute itself
+ * from the chosen slot and a snapshot of the service.
  *
  * @property int $id
  * @property int $customer_id
@@ -80,16 +81,43 @@ class Booking extends Model
      * Bookings that take up the employee's time between two UTC moments:
      * a blocking status and an overlap including the buffer (docs/erd.md):
      * starts_at < $until AND blocked_until > $from. The slot calculation
-     * (ISSUE-11) uses this; booking creation (ISSUE-13) re-checks with it.
+     * (ISSUE-11) uses this; booking creation (ISSUE-12, CreateBooking)
+     * re-checks with it.
      *
      * @param  Builder<Booking>  $query
      */
     #[Scope]
     protected function blockingBetween(Builder $query, CarbonImmutable $from, CarbonImmutable $until): void
     {
-        $query->whereIn('status', array_map(fn (BookingStatus $s): string => $s->value, BookingStatus::blocking()))
+        $query->whereIn('status', self::blockingStatusValues())
             ->where('starts_at', '<', $until->utc())
             ->where('blocked_until', '>', $from->utc());
+    }
+
+    /**
+     * Appointments the customer has to attend between two UTC moments: a
+     * blocking status and an overlap of the appointment itself, without the
+     * buffer, which is the employee's time (docs/erd.md):
+     * starts_at < $until AND ends_at > $from. Booking creation (ISSUE-12)
+     * uses this to refuse a customer's double booking with any employee.
+     *
+     * @param  Builder<Booking>  $query
+     */
+    #[Scope]
+    protected function attendedByBetween(Builder $query, User $customer, CarbonImmutable $from, CarbonImmutable $until): void
+    {
+        $query->where('customer_id', $customer->id)
+            ->whereIn('status', self::blockingStatusValues())
+            ->where('starts_at', '<', $until->utc())
+            ->where('ends_at', '>', $from->utc());
+    }
+
+    /**
+     * @return list<string>
+     */
+    private static function blockingStatusValues(): array
+    {
+        return array_map(fn (BookingStatus $s): string => $s->value, BookingStatus::blocking());
     }
 
     /**

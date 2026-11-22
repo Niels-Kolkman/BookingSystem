@@ -122,7 +122,7 @@ The overlap check has to be a simple, indexable range comparison. Storing `block
 existing.starts_at < new.blocked_until AND existing.blocked_until > new.starts_at
 ```
 
-The customer's own double-booking check uses `starts_at`/`ends_at` only, because a buffer is the employee's cleanup time, not the customer's.
+The customer's own double-booking check (`Booking::attendedByBetween()`) uses `starts_at`/`ends_at` only, because a buffer is the employee's cleanup time, not the customer's.
 
 ### Snapshots on the booking
 `duration_minutes` and `price_cents` are copied from the service at booking time. Changing a service later must not rewrite history or move existing appointments.
@@ -173,9 +173,24 @@ Exceptions do not touch existing bookings: a booking on a new day off stays and 
 - **Working time:** `scheduleOn($localDate)->ranges`, so weekly hours, closed holidays, extra hours and time off are already applied.
 - **Start times** step by `booking.slot_interval` minutes (default 15) from the start of every working range: 09:00, 09:15, ... and after a lunch break 13:30, 13:45, ...
 - **Fit:** the appointment itself (service duration) must end within the same working range. The buffer after it may run past the end of working time (tidying up after the last customer).
-- **Existing bookings:** every `requested` or `confirmed` booking of the employee blocks `starts_at` up to `blocked_until`, whatever service it is for (`Booking::blockingBetween()`). A new slot is free when its own `starts_at` up to `blocked_until` (duration + buffer) does not overlap any of them. This is the same overlap rule as above, so booking creation (ISSUE-13) can re-check with the same scope and never rejects an offered slot for overlap. Touching is allowed: a slot may start when the previous blocked time ends.
+- **Existing bookings:** every `requested` or `confirmed` booking of the employee blocks `starts_at` up to `blocked_until`, whatever service it is for (`Booking::blockingBetween()`). A new slot is free when its own `starts_at` up to `blocked_until` (duration + buffer) does not overlap any of them. This is the same overlap rule as above, so booking creation (ISSUE-12) re-checks with the same scope and never rejects an offered slot for overlap. Touching is allowed: a slot may start when the previous blocked time ends.
 - **Past:** start times before now are left out; a slot starting exactly now is still offered. There is no minimum lead time yet.
 - **Time zones:** each range boundary is converted from Europe/Amsterdam to UTC, and durations are added in elapsed time. The switch weekends are ISSUE-14.
+
+### Creating a booking
+A customer books a free slot with `POST /bookings` (`bookings.store`, ISSUE-12). Only users with the customer role may do this (`role:customer`, others get 403). The rules live in `App\Bookings\CreateBooking`, which has no HTTP and is called by `BookingController::store`.
+
+- **Input** (`StoreBookingRequest`): `service_id`, `employee_id`, `starts_at` and optional `notes` (max 1000 characters). `starts_at` is ISO 8601 with a numeric offset, e.g. `2026-12-01T09:15:00+01:00` (`Slot::$startsAt->toIso8601String()`), so a start on the daylight-saving switch night is never ambiguous.
+- **Checks**, in this order. The first one that fails refuses the booking with a `BookingRefused` carrying a Dutch message and the field to show it on:
+  1. the service is active and `Employee::canPerform($service)` (on `employee_id`);
+  2. **the employee is free:** no `requested`/`confirmed` booking of that employee overlaps the new `starts_at` up to `blocked_until`, buffers included (`Booking::blockingBetween()`, "Dit tijdstip is helaas net bezet") (on `starts_at`);
+  3. **the customer is free:** no `requested`/`confirmed` appointment of that customer, with any employee, overlaps the new `starts_at` up to `ends_at` (`Booking::attendedByBetween()`, "Je hebt op dit tijdstip al een andere afspraak"). The buffer is not counted here, so a customer can go straight from one appointment to the next (on `starts_at`);
+  4. **the start is an offered slot:** it is one of `AvailableSlots::for()` on that local date, so working time, exceptions, the interval grid, the fit in the working block and "not in the past" all apply (on `starts_at`).
+
+  Checks 2 and 3 come before 4 so the customer gets the specific reason. Touching is allowed in both overlap checks.
+- **Stored:** times from the matching `Slot` (UTC), a snapshot of `duration_minutes` and `price_cents`, status `requested`. Confirming is ISSUE-18.
+- **Result:** a redirect to the booking with a confirmation. A refusal redirects back with the input and the message on the field.
+- The checks and the insert run in one transaction. Locking the employee row so simultaneous requests cannot both pass the checks is ISSUE-13 (see *Concurrency*).
 
 ### Deleting data
 Employees and services are **deactivated** (`is_active = false`), not deleted, because bookings reference them. Foreign keys from `bookings` use `RESTRICT` on delete. Deleting a user is out of scope for now. `employee_service`, `working_hours` and `schedule_exceptions` cascade when their employee is deleted; `employee_service` also cascades when a service (without bookings) is deleted.
