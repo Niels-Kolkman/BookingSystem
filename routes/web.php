@@ -1,6 +1,7 @@
 <?php
 
 use App\Http\Controllers\Admin\EmployeeScheduleController;
+use App\Http\Controllers\Admin\ScheduleExceptionController;
 use App\Http\Controllers\Admin\ServiceController;
 use App\Http\Controllers\AgendaController;
 use App\Http\Controllers\Auth\ForgotPasswordController;
@@ -63,5 +64,12 @@ Route::middleware('auth')->group(function () {
         Route::get('employees', [EmployeeScheduleController::class, 'index'])->name('employees.index');
         Route::get('employees/{employee}/schedule', [EmployeeScheduleController::class, 'edit'])->name('employees.schedule.edit');
         Route::put('employees/{employee}/schedule', [EmployeeScheduleController::class, 'update'])->name('employees.schedule.update');
+
+        // Schedule exceptions per employee: time off and extra hours (ISSUE-10).
+        Route::get('employees/{employee}/exceptions', [ScheduleExceptionController::class, 'index'])->name('employees.exceptions.index');
+        Route::post('employees/{employee}/exceptions', [ScheduleExceptionController::class, 'store'])->name('employees.exceptions.store');
+        Route::delete('employees/{employee}/exceptions/{scheduleException}', [ScheduleExceptionController::class, 'destroy'])
+            ->scopeBindings()
+            ->name('employees.exceptions.destroy');
     });
 });
