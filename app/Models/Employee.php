@@ -2,9 +2,11 @@
 
 namespace App\Models;
 
+use App\Enums\Weekday;
 use Database\Factories\EmployeeFactory;
 use Illuminate\Database\Eloquent\Attributes\Scope;
 use Illuminate\Database\Eloquent\Builder;
+use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
@@ -77,6 +79,34 @@ class Employee extends Model
     public function services(): BelongsToMany
     {
         return $this->belongsToMany(Service::class);
+    }
+
+    /**
+     * Recurring weekly schedule (ISSUE-9): blocks of local time per weekday,
+     * in time order. Admins manage it on the schedule form.
+     *
+     * @return HasMany<WorkingHour, $this>
+     */
+    public function workingHours(): HasMany
+    {
+        return $this->hasMany(WorkingHour::class)
+            ->orderBy('weekday')
+            ->orderBy('starts_at');
+    }
+
+    /**
+     * The blocks this employee normally works on the given weekday, in time
+     * order; empty on a day off. This is the regular schedule only: the slot
+     * calculation (ISSUE-11) still has to apply schedule exceptions
+     * (ISSUE-10) and existing bookings for a concrete date.
+     *
+     * @return Collection<int, WorkingHour>
+     */
+    public function workingHoursOn(Weekday $weekday): Collection
+    {
+        return $this->workingHours
+            ->filter(fn (WorkingHour $block): bool => $block->weekday === $weekday)
+            ->values();
     }
 
     /**

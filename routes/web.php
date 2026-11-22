@@ -1,5 +1,6 @@
 <?php
 
+use App\Http\Controllers\Admin\EmployeeScheduleController;
 use App\Http\Controllers\Admin\ServiceController;
 use App\Http\Controllers\AgendaController;
 use App\Http\Controllers\Auth\ForgotPasswordController;
@@ -57,5 +58,10 @@ Route::middleware('auth')->group(function () {
         Route::view('/', 'admin.dashboard')->name('dashboard');
 
         Route::resource('services', ServiceController::class)->except('show');
+
+        // Weekly schedules per employee (ISSUE-9).
+        Route::get('employees', [EmployeeScheduleController::class, 'index'])->name('employees.index');
+        Route::get('employees/{employee}/schedule', [EmployeeScheduleController::class, 'edit'])->name('employees.schedule.edit');
+        Route::put('employees/{employee}/schedule', [EmployeeScheduleController::class, 'update'])->name('employees.schedule.update');
     });
 });
