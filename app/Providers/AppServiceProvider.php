@@ -2,6 +2,7 @@
 
 namespace App\Providers;
 
+use App\Scheduling\AvailableSlots;
 use Illuminate\Support\ServiceProvider;
 use Illuminate\Validation\Rules\Password;
 
@@ -12,7 +13,8 @@ class AppServiceProvider extends ServiceProvider
      */
     public function register(): void
     {
-        //
+        // Slot calculation (ISSUE-11): inject AvailableSlots, the interval comes from config/booking.php.
+        $this->app->bind(AvailableSlots::class, fn (): AvailableSlots => AvailableSlots::fromConfig());
     }
 
     /**

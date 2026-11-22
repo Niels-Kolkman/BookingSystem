@@ -166,6 +166,17 @@ For a concrete date, use `Employee::scheduleOn($localDate)` (see *Schedule excep
 
 Exceptions do not touch existing bookings: a booking on a new day off stays and must be moved or cancelled by hand. The slot calculation (ISSUE-11) starts from `scheduleOn($localDate)->ranges`, subtracts existing bookings and converts to UTC (ISSUE-14). Pass a local date: `scheduleOn()` only looks at the calendar date of its argument. When computing many dates, eager load `workingHours` and `scheduleExceptions` to avoid a query per day.
 
+### Available slots
+`App\Scheduling\AvailableSlots::for($service, $employee, $localDate)` returns the free start times for one service with one employee on one local date (ISSUE-11), as `Slot`s with `startsAt`, `endsAt` and `blockedUntil` in UTC, ready to store on a booking. Resolve it from the container; `config/booking.php` sets the interval. The rules live in the pure `SlotCalculator`, which has no database, clock or HTTP and is unit tested on its own.
+
+- **Bookable at all:** nothing is offered when the service is inactive or `Employee::canPerform($service)` is false.
+- **Working time:** `scheduleOn($localDate)->ranges`, so weekly hours, closed holidays, extra hours and time off are already applied.
+- **Start times** step by `booking.slot_interval` minutes (default 15) from the start of every working range: 09:00, 09:15, ... and after a lunch break 13:30, 13:45, ...
+- **Fit:** the appointment itself (service duration) must end within the same working range. The buffer after it may run past the end of working time (tidying up after the last customer).
+- **Existing bookings:** every `requested` or `confirmed` booking of the employee blocks `starts_at` up to `blocked_until`, whatever service it is for (`Booking::blockingBetween()`). A new slot is free when its own `starts_at` up to `blocked_until` (duration + buffer) does not overlap any of them. This is the same overlap rule as above, so booking creation (ISSUE-13) can re-check with the same scope and never rejects an offered slot for overlap. Touching is allowed: a slot may start when the previous blocked time ends.
+- **Past:** start times before now are left out; a slot starting exactly now is still offered. There is no minimum lead time yet.
+- **Time zones:** each range boundary is converted from Europe/Amsterdam to UTC, and durations are added in elapsed time. The switch weekends are ISSUE-14.
+
 ### Deleting data
 Employees and services are **deactivated** (`is_active = false`), not deleted, because bookings reference them. Foreign keys from `bookings` use `RESTRICT` on delete. Deleting a user is out of scope for now. `employee_service`, `working_hours` and `schedule_exceptions` cascade when their employee is deleted; `employee_service` also cascades when a service (without bookings) is deleted.
 
