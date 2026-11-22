@@ -386,4 +386,387 @@ describe('authorization', function () {
 
         expect(scheduleOf($employee))->toBe([]);
     });
+
+    it('does not let non-admins load the edit form of a missing employee', function () {
+        // The role check should run before route model binding reveals anything.
+        actingAs(User::factory()->withRole(UserRole::Customer)->create())
+            ->get(route('admin.employees.schedule.edit', 999999))
+            ->assertForbidden();
+    })->skip('Known bug: non-admins get 404 for missing and 403 for existing employees, so they can probe which ids exist. The `role` middleware is not in the middleware priority list, so SubstituteBindings runs first (affects every admin route with a bound model).');
+});
+
+describe('edge cases: model', function () {
+    it('labels every weekday in Dutch and in ISO order', function () {
+        expect(array_map(fn (Weekday $day): int => $day->value, Weekday::cases()))->toBe([1, 2, 3, 4, 5, 6, 7])
+            ->and(array_map(fn (Weekday $day): string => $day->label(), Weekday::cases()))->toBe([
+                'maandag', 'dinsdag', 'woensdag', 'donderdag', 'vrijdag', 'zaterdag', 'zondag',
+            ]);
+    });
+
+    it('maps every date of a week to its weekday', function () {
+        $monday = CarbonImmutable::parse('2026-11-23');
+
+        foreach (Weekday::cases() as $offset => $weekday) {
+            expect(Weekday::fromDate($monday->addDays($offset)))->toBe($weekday);
+        }
+    });
+
+    it('uses the time zone of the given date', function () {
+        // Sunday 23:30 in UTC is already Monday 00:30 in Amsterdam.
+        $utc = CarbonImmutable::parse('2026-11-29 23:30', 'UTC');
+
+        expect(Weekday::fromDate($utc))->toBe(Weekday::Sunday)
+            ->and(Weekday::fromDate($utc->setTimezone('Europe/Amsterdam')))->toBe(Weekday::Monday);
+    });
+
+    it('normalizes times', function (string $input, string $expected, int $minutes) {
+        expect(WorkingHour::normalizeTime($input))->toBe($expected)
+            ->and(WorkingHour::toMinutes($input))->toBe($minutes);
+    })->with([
+        'midnight' => ['00:00', '00:00', 0],
+        'last minute' => ['23:59', '23:59', 1439],
+        'no leading zero' => ['9:05', '09:05', 545],
+        'with seconds' => ['17:30:00', '17:30', 1050],
+        'seconds dropped' => ['17:30:59', '17:30', 1050],
+        'surrounding spaces' => [' 08:00 ', '08:00', 480],
+    ]);
+
+    it('rejects invalid times', function (string $input) {
+        WorkingHour::normalizeTime($input);
+    })->throws(InvalidArgumentException::class)->with(['', '24:00', '12:60', '12', '12:5', 'abc', '12:00:60', '-1:00']);
+
+    it('does not allow employee_id to be mass assigned', function () {
+        $employee = Employee::factory()->create();
+
+        $block = new WorkingHour(['employee_id' => $employee->id, 'weekday' => Weekday::Monday, 'starts_at' => '09:00', 'ends_at' => '17:00']);
+
+        expect($block->employee_id)->toBeNull()
+            ->and($block->weekday)->toBe(Weekday::Monday);
+    });
+
+    it('belongs to its employee', function () {
+        $employee = Employee::factory()->create();
+        $block = WorkingHour::factory()->for($employee)->create();
+
+        expect($block->employee->is($employee))->toBeTrue();
+    });
+
+    it('orders blocks by weekday first, then by start time', function () {
+        $employee = Employee::factory()->create();
+        WorkingHour::factory()->for($employee)->on(Weekday::Sunday, '08:00', '09:00')->create();
+        WorkingHour::factory()->for($employee)->on(Weekday::Monday, '14:00', '15:00')->create();
+        WorkingHour::factory()->for($employee)->on(Weekday::Monday, '9:00', '10:00')->create();
+        WorkingHour::factory()->for($employee)->on(Weekday::Tuesday, '07:00', '08:00')->create();
+
+        expect(scheduleOf($employee))->toBe([
+            '1 09:00 - 10:00',
+            '1 14:00 - 15:00',
+            '2 07:00 - 08:00',
+            '7 08:00 - 09:00',
+        ]);
+    });
+});
+
+describe('edge cases: saving', function () {
+    it('accepts a block spanning the whole day', function () {
+        $employee = Employee::factory()->create();
+
+        actingAs(scheduleAdmin())
+            ->put(route('admin.employees.schedule.update', $employee), scheduleInput([6 => [['00:00', '23:59']]]))
+            ->assertSessionHasNoErrors();
+
+        expect(scheduleOf($employee))->toBe(['6 00:00 - 23:59']);
+    });
+
+    it('accepts exactly six blocks on one day', function () {
+        $employee = Employee::factory()->create();
+        $rows = array_map(fn (int $hour): array => [sprintf('%02d:00', $hour), sprintf('%02d:30', $hour)], range(8, 13));
+
+        actingAs(scheduleAdmin())
+            ->put(route('admin.employees.schedule.update', $employee), scheduleInput([1 => $rows]))
+            ->assertSessionHasNoErrors();
+
+        expect(scheduleOf($employee))->toHaveCount(6);
+    });
+
+    it('fills every day of the week', function () {
+        $employee = Employee::factory()->create();
+        $days = [];
+        foreach (Weekday::cases() as $weekday) {
+            $days[$weekday->value] = [['09:00', '12:00'], ['13:00', '17:00']];
+        }
+
+        actingAs(scheduleAdmin())
+            ->put(route('admin.employees.schedule.update', $employee), scheduleInput($days))
+            ->assertSessionHasNoErrors();
+
+        expect(scheduleOf($employee))->toHaveCount(14);
+        foreach (Weekday::cases() as $weekday) {
+            expect($employee->fresh()?->workingHoursOn($weekday)->map->label()->all())
+                ->toBe(['09:00 - 12:00', '13:00 - 17:00']);
+        }
+    });
+
+    it('ignores spare empty rows between filled rows and sparse row keys', function () {
+        $employee = Employee::factory()->create();
+
+        actingAs(scheduleAdmin())
+            ->put(route('admin.employees.schedule.update', $employee), ['blocks' => [
+                1 => [
+                    0 => ['starts_at' => null, 'ends_at' => null],
+                    3 => ['starts_at' => '13:00', 'ends_at' => '17:00'],
+                    5 => ['starts_at' => '08:00', 'ends_at' => '12:00'],
+                ],
+            ]])
+            ->assertSessionHasNoErrors();
+
+        expect(scheduleOf($employee))->toBe(['1 08:00 - 12:00', '1 13:00 - 17:00']);
+    });
+
+    it('trims spaces around submitted times', function () {
+        $employee = Employee::factory()->create();
+
+        actingAs(scheduleAdmin())
+            ->put(route('admin.employees.schedule.update', $employee), scheduleInput([1 => [[' 09:00 ', '17:00 ']]]))
+            ->assertSessionHasNoErrors();
+
+        expect(scheduleOf($employee))->toBe(['1 09:00 - 17:00']);
+    });
+
+    it('confirms the save with the employee name', function () {
+        $employee = Employee::factory()->create(['display_name' => 'Anna']);
+
+        actingAs(scheduleAdmin())
+            ->followingRedirects()
+            ->put(route('admin.employees.schedule.update', $employee), scheduleInput([1 => [['09:00', '17:00']]]))
+            ->assertOk()
+            ->assertSee('Werkrooster van Anna is opgeslagen.');
+    });
+
+    it('keeps the old schedule when saving the new blocks fails', function () {
+        $employee = Employee::factory()->create();
+        WorkingHour::factory()->for($employee)->on(Weekday::Monday, '09:00', '17:00')->create();
+
+        // Fail on the second new block, after the old ones are deleted.
+        $created = 0;
+        WorkingHour::creating(function () use (&$created): void {
+            if (++$created === 2) {
+                throw new RuntimeException('Database down');
+            }
+        });
+
+        actingAs(scheduleAdmin())
+            ->put(route('admin.employees.schedule.update', $employee), scheduleInput([
+                2 => [['09:00', '12:00'], ['13:00', '17:00']],
+            ]))
+            ->assertServerError();
+
+        expect(scheduleOf($employee))->toBe(['1 09:00 - 17:00']);
+    });
+
+    it('does not touch existing bookings', function () {
+        $employee = Employee::factory()->create();
+        WorkingHour::factory()->for($employee)->create();
+        $bookings = DB::table('bookings')->count();
+
+        actingAs(scheduleAdmin())
+            ->put(route('admin.employees.schedule.update', $employee), [])
+            ->assertSessionHasNoErrors();
+
+        expect(DB::table('bookings')->count())->toBe($bookings);
+    });
+});
+
+describe('edge cases: validation', function () {
+    it('marks both overlapping blocks and leaves the others alone', function () {
+        $employee = Employee::factory()->create();
+
+        $response = actingAs(scheduleAdmin())
+            ->put(route('admin.employees.schedule.update', $employee), scheduleInput([
+                1 => [['09:00', '12:30'], ['12:00', '13:00'], ['14:00', '17:00']],
+            ]));
+
+        $response->assertSessionHasErrors(['blocks.1.0.starts_at', 'blocks.1.1.starts_at'])
+            ->assertSessionDoesntHaveErrors(['blocks.1.2.starts_at', 'blocks.1.2.ends_at']);
+    });
+
+    it('reports overlaps per day only', function () {
+        $employee = Employee::factory()->create();
+
+        actingAs(scheduleAdmin())
+            ->put(route('admin.employees.schedule.update', $employee), scheduleInput([
+                1 => [['09:00', '17:00']],
+                2 => [['09:00', '12:00'], ['11:00', '13:00']],
+            ]))
+            ->assertSessionHasErrors('blocks.2.1.starts_at')
+            ->assertSessionDoesntHaveErrors('blocks.1.0.starts_at');
+    });
+
+    it('does not report an overlap for a block that already ends before it starts', function () {
+        $employee = Employee::factory()->create();
+
+        actingAs(scheduleAdmin())
+            ->put(route('admin.employees.schedule.update', $employee), scheduleInput([
+                1 => [['09:00', '17:00'], ['16:00', '10:00']],
+            ]))
+            ->assertSessionHasErrors(['blocks.1.1.ends_at' => 'De eindtijd moet na de begintijd liggen.'])
+            ->assertSessionDoesntHaveErrors(['blocks.1.0.starts_at', 'blocks.1.1.starts_at']);
+    });
+
+    it('puts errors on the submitted row key', function () {
+        $employee = Employee::factory()->create();
+
+        actingAs(scheduleAdmin())
+            ->put(route('admin.employees.schedule.update', $employee), ['blocks' => [
+                4 => [3 => ['starts_at' => '17:00', 'ends_at' => '09:00']],
+            ]])
+            ->assertSessionHasErrors('blocks.4.3.ends_at');
+    });
+
+    it('rejects a malformed end time', function (mixed $time) {
+        $employee = Employee::factory()->create();
+
+        actingAs(scheduleAdmin())
+            ->put(route('admin.employees.schedule.update', $employee), ['blocks' => [1 => [['starts_at' => '09:00', 'ends_at' => $time]]]])
+            ->assertSessionHasErrors(['blocks.1.0.ends_at' => 'Vul de eindtijd in als UU:MM, bijvoorbeeld 17:00.']);
+
+        expect(scheduleOf($employee))->toBe([]);
+    })->with([
+        'hour 24' => ['24:00'],
+        'text' => ['vijf uur'],
+        'array' => [['17:00']],
+    ]);
+
+    it('skips the overlap check until every time is well-formed', function () {
+        $employee = Employee::factory()->create();
+
+        actingAs(scheduleAdmin())
+            ->put(route('admin.employees.schedule.update', $employee), scheduleInput([
+                1 => [['09:00', '12:30'], ['12:00', '17:00']],
+                2 => [['9 uur', '17:00']],
+            ]))
+            ->assertSessionHasErrors('blocks.2.0.starts_at')
+            ->assertSessionDoesntHaveErrors('blocks.1.1.starts_at');
+    });
+
+    it('rejects too many rows even when some are empty', function () {
+        $employee = Employee::factory()->create();
+        $rows = array_fill(0, 7, [null, null]);
+        $rows[0] = ['09:00', '17:00'];
+
+        actingAs(scheduleAdmin())
+            ->put(route('admin.employees.schedule.update', $employee), scheduleInput([1 => $rows]))
+            ->assertSessionHasErrors('blocks.1');
+
+        expect(scheduleOf($employee))->toBe([]);
+    });
+
+    it('rejects weekday keys that are not plain numbers', function (string $key) {
+        $employee = Employee::factory()->create();
+
+        actingAs(scheduleAdmin())
+            ->put(route('admin.employees.schedule.update', $employee), ['blocks' => [
+                $key => [['starts_at' => '09:00', 'ends_at' => '17:00']],
+            ]])
+            ->assertSessionHasErrors(['blocks' => 'Het rooster bevat een ongeldige weekdag.']);
+
+        expect(scheduleOf($employee))->toBe([]);
+    })->with(['monday', '01', '1.5']);
+
+    it('shows a weekday error at the top of the form', function () {
+        $employee = Employee::factory()->create();
+
+        actingAs(scheduleAdmin())
+            ->from(route('admin.employees.schedule.edit', $employee))
+            ->followingRedirects()
+            ->put(route('admin.employees.schedule.update', $employee), ['blocks' => [9 => [['starts_at' => '09:00', 'ends_at' => '17:00']]]])
+            ->assertOk()
+            ->assertSee('Het rooster bevat een ongeldige weekdag.');
+    });
+});
+
+describe('edge cases: pages', function () {
+    it('lists active employees before inactive ones, then by name', function () {
+        Employee::factory()->inactive()->create(['display_name' => 'Aad']);
+        Employee::factory()->create(['display_name' => 'Zoë']);
+        Employee::factory()->create(['display_name' => 'Bram']);
+
+        actingAs(scheduleAdmin())
+            ->get(route('admin.employees.index'))
+            ->assertSeeInOrder(['Bram', 'Zoë', 'Aad', 'inactief']);
+    });
+
+    it('shows a message when there are no employees', function () {
+        actingAs(scheduleAdmin())
+            ->get(route('admin.employees.index'))
+            ->assertOk()
+            ->assertSee('Er zijn nog geen medewerkers.');
+    });
+
+    it('does not warn about employees that have a schedule', function () {
+        $employee = Employee::factory()->create();
+        WorkingHour::factory()->for($employee)->create();
+
+        actingAs(scheduleAdmin())
+            ->get(route('admin.employees.index'))
+            ->assertDontSee('Nog geen werkrooster');
+    });
+
+    it('shows one spare row after the saved blocks and never more than six rows', function () {
+        $employee = Employee::factory()->create();
+        foreach (range(8, 10) as $hour) {
+            WorkingHour::factory()->for($employee)->on(Weekday::Tuesday, "{$hour}:00", "{$hour}:30")->create();
+        }
+        foreach (range(8, 13) as $hour) {
+            WorkingHour::factory()->for($employee)->on(Weekday::Friday, "{$hour}:00", "{$hour}:30")->create();
+        }
+
+        actingAs(scheduleAdmin())
+            ->get(route('admin.employees.schedule.edit', $employee))
+            ->assertOk()
+            ->assertSeeInOrder([
+                'name="blocks[2][2][starts_at]"', 'value="10:00"',
+                'name="blocks[2][3][starts_at]"', 'value=""',
+            ], false)
+            ->assertDontSee('name="blocks[2][4][starts_at]"', false)
+            ->assertSee('name="blocks[5][5][starts_at]"', false)
+            ->assertDontSee('name="blocks[5][6][starts_at]"', false);
+    });
+
+    it('labels every input for screen readers', function () {
+        $employee = Employee::factory()->create();
+
+        actingAs(scheduleAdmin())
+            ->get(route('admin.employees.schedule.edit', $employee))
+            ->assertSee('for="blocks-1-0-starts_at"', false)
+            ->assertSee('id="blocks-1-0-starts_at"', false)
+            ->assertSee('(maandag, blok 2)', false);
+    });
+
+    it('marks invalid inputs after a validation error', function () {
+        $employee = Employee::factory()->create();
+
+        actingAs(scheduleAdmin())
+            ->from(route('admin.employees.schedule.edit', $employee))
+            ->followingRedirects()
+            ->put(route('admin.employees.schedule.update', $employee), scheduleInput([3 => [['17:00', '09:00']]]))
+            ->assertSee('aria-invalid="true"', false)
+            ->assertSee('aria-describedby="blocks-3-0-error"', false)
+            ->assertSee('De eindtijd moet na de begintijd liggen.');
+    });
+
+    it('shows the submitted input instead of the saved schedule after an error', function () {
+        $employee = Employee::factory()->create();
+        WorkingHour::factory()->for($employee)->on(Weekday::Monday, '07:15', '07:45')->create();
+
+        actingAs(scheduleAdmin())
+            ->from(route('admin.employees.schedule.edit', $employee))
+            ->followingRedirects()
+            ->put(route('admin.employees.schedule.update', $employee), scheduleInput([
+                1 => [['10:00', '11:00']],
+                2 => [['17:00', '09:00']],
+            ]))
+            ->assertSee('value="10:00"', false)
+            ->assertDontSee('value="07:15"', false);
+    });
 });
