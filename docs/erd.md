@@ -137,6 +137,17 @@ An employee can be booked for a service only when `Employee::canPerform($service
 
 Unlinking an employee does not touch existing bookings; it only prevents new ones. An active service without an active linked employee cannot be booked, and the admin service overview warns about that.
 
+### Weekly schedule
+`working_hours` holds the recurring week of each employee (ISSUE-9). Admins edit it under *Beheer → Medewerkers en werkroosters* (`/admin/employees`).
+
+- **Weekdays** are ISO-8601 numbers, 1 = Monday ... 7 = Sunday (`App\Enums\Weekday`, `Weekday::fromDate()`), the same as PHP's `N` format.
+- **Blocks:** a day can have up to six blocks; a lunch break is two blocks (09:00-12:30 and 13:30-17:00). A weekday without blocks is a day off.
+- **Rules** (checked in `ScheduleRequest`): times are `HH:MM` local time; a block ends after it starts on the same day (no night shifts past midnight, latest end 23:59); blocks on one day do not overlap, but may touch (12:00-12:00).
+- **Saving** replaces the whole schedule of that employee in one transaction. Existing bookings are not touched: a booking outside the new hours stays, it is only no longer offered as a new slot.
+- **Storage:** times are written as `HH:MM:00` and read as `HH:MM`, so SQLite and MySQL behave the same.
+
+The slot calculation (ISSUE-11) starts from `Employee::workingHoursOn(Weekday::fromDate($localDate))`, with `startMinutes()`/`endMinutes()` per block. It then applies `schedule_exceptions` (ISSUE-10) and existing bookings for that date, and converts to UTC (ISSUE-14).
+
 ### Deleting data
 Employees and services are **deactivated** (`is_active = false`), not deleted, because bookings reference them. Foreign keys from `bookings` use `RESTRICT` on delete. Deleting a user is out of scope for now. `employee_service`, `working_hours` and `schedule_exceptions` cascade when their employee is deleted; `employee_service` also cascades when a service (without bookings) is deleted.
 
