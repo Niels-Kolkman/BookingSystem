@@ -21,8 +21,14 @@ use InvalidArgumentException;
  *   (docs/erd.md), so an offered slot is never rejected for overlap.
  * - Start times before `$notBefore` (usually "now") are left out.
  *
- * The local schedule is converted to UTC per range boundary, and durations
- * are added in real elapsed time. Daylight-saving details are ISSUE-14.
+ * The local schedule is converted to UTC per range boundary, and start
+ * times and durations step in real elapsed time (ISSUE-14, LocalTime):
+ * - when the clock jumps forward (last Sunday of March) no start in
+ *   02:00-02:59 is offered, and a range that starts or ends in that hour
+ *   starts or ends at the jump, so 01:00-04:00 is 2 hours of slots;
+ * - when the clock goes back (last Sunday of October) 02:00-02:59 is
+ *   offered twice, once in summer and once in winter time, so 01:00-04:00
+ *   is 4 hours of slots. Slot::label() tells the two apart.
  */
 final class SlotCalculator
 {
@@ -78,16 +84,13 @@ final class SlotCalculator
 
     /**
      * Minutes since local midnight on `$date` as a UTC moment. 1440 is the
-     * next local midnight.
+     * next local midnight. On the switch nights a time in the skipped hour
+     * is the moment of the jump and a time in the repeated hour its first
+     * occurrence (LocalTime::at()).
      */
     public static function toUtc(CarbonImmutable $date, int $minutes): CarbonImmutable
     {
-        $midnight = CarbonImmutable::parse($date->format('Y-m-d'), DutchHolidays::TIMEZONE);
-        $local = $minutes === TimeRange::MINUTES_PER_DAY
-            ? $midnight->addDay()
-            : $midnight->setTime(intdiv($minutes, 60), $minutes % 60);
-
-        return $local->utc();
+        return LocalTime::at($date, $minutes);
     }
 
     /**

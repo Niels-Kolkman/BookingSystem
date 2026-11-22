@@ -24,14 +24,15 @@ final readonly class Slot
      */
     public function localStart(): CarbonImmutable
     {
-        return $this->startsAt->setTimezone(DutchHolidays::TIMEZONE);
+        return LocalTime::toLocal($this->startsAt);
     }
 
     /**
-     * Local start time, e.g. "09:15".
+     * Local start time, e.g. "09:15". In the hour that happens twice when
+     * the clock goes back: "02:30 (zomertijd)" and "02:30 (wintertijd)".
      */
     public function label(): string
     {
-        return $this->localStart()->format('H:i');
+        return LocalTime::time($this->startsAt);
     }
 }

@@ -3,8 +3,9 @@
         <div>
             <dt class="text-gray-600">Datum en tijd</dt>
             <dd>
-                {{ $booking->starts_at->timezone('Europe/Amsterdam')->format('d-m-Y H:i') }}
-                - {{ $booking->ends_at->timezone('Europe/Amsterdam')->format('H:i') }}
+                {{-- Stored in UTC, shown in Europe/Amsterdam (ISSUE-14). --}}
+                {{ \App\Scheduling\LocalTime::dateTime($booking->starts_at) }}
+                - {{ \App\Scheduling\LocalTime::time($booking->ends_at) }}
             </dd>
         </div>
         <div>
