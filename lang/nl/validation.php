@@ -13,9 +13,11 @@
 return [
 
     'accepted' => ':Attribute moet geaccepteerd worden.',
+    'array' => ':Attribute moet een lijst zijn.',
     'boolean' => ':Attribute moet waar of onwaar zijn.',
     'confirmed' => 'De bevestiging van :attribute komt niet overeen.',
     'date' => ':Attribute moet een geldige datum zijn.',
+    'distinct' => ':Attribute komt meer dan één keer voor.',
     'email' => ':Attribute moet een geldig e-mailadres zijn.',
     'exists' => 'De gekozen :attribute bestaat niet.',
     'in' => 'De gekozen :attribute is ongeldig.',
