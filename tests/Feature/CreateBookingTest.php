@@ -254,7 +254,137 @@ describe('CreateBooking', function () {
     });
 });
 
+describe('CreateBooking edge cases', function () {
+    it('allows a new appointment that ends exactly when the customer\'s next one starts, even though its buffer runs on', function () {
+        [$employee, $service] = bookableEmployee();
+        [$otherEmployee] = bookableEmployee();
+        $customer = User::factory()->customer()->create();
+        existingBooking($otherEmployee, '09:30', 30, attributes: ['customer_id' => $customer->id]);
+
+        // 09:00-09:30, blocked until 09:45: the buffer is the employee's time, not the customer's.
+        $booking = book($customer, $service, $employee, tuesdayAt('09:00'));
+
+        expect($booking->blocked_until->toDateTimeString())->toBe('2026-12-01 08:45:00')
+            ->and(Booking::count())->toBe(2);
+    });
+
+    it('refuses when the customer\'s other appointment fully contains or lies within the new one', function (string $existingStart, int $existingDuration, string $newStart) {
+        [$employee, $service] = bookableEmployee();
+        [$otherEmployee] = bookableEmployee();
+        $customer = User::factory()->customer()->create();
+        existingBooking($otherEmployee, $existingStart, $existingDuration, attributes: ['customer_id' => $customer->id]);
+
+        expect(refusalOf(fn () => book($customer, $service, $employee, tuesdayAt($newStart))))->toBe(BookingRefused::REASON_CUSTOMER_BUSY);
+    })->with([
+        'existing contains new' => ['09:00', 90, '09:30'],
+        'new contains existing' => ['09:10', 10, '09:00'],
+        'identical times' => ['09:00', 30, '09:00'],
+    ]);
+
+    it('ignores the customer\'s cancelled appointment with another employee', function () {
+        [$employee, $service] = bookableEmployee();
+        [$otherEmployee] = bookableEmployee();
+        $customer = User::factory()->customer()->create();
+        existingBooking($otherEmployee, '09:00', 30, attributes: ['customer_id' => $customer->id, 'status' => BookingStatus::Cancelled]);
+
+        expect(book($customer, $service, $employee, tuesdayAt('09:00'))->exists)->toBeTrue();
+    });
+
+    it('does not block an employee with a booking of a different employee', function () {
+        [$employee, $service] = bookableEmployee();
+        [$otherEmployee] = bookableEmployee();
+        existingBooking($otherEmployee, '09:00', 30, buffer: 15);
+
+        expect(book(User::factory()->customer()->create(), $service, $employee, tuesdayAt('09:15'))->exists)->toBeTrue();
+    });
+
+    it('reports the most specific reason when several checks fail', function () {
+        [$employee, $service] = bookableEmployee();
+        [$otherEmployee] = bookableEmployee();
+        $customer = User::factory()->customer()->create();
+        existingBooking($employee, '09:00', 30);
+        existingBooking($otherEmployee, '11:00', 30, attributes: ['customer_id' => $customer->id]);
+
+        // Off the grid (09:10, 11:10) but overlapping: the overlap reason wins over not_offered.
+        expect(refusalOf(fn () => book($customer, $service, $employee, tuesdayAt('09:10'))))->toBe(BookingRefused::REASON_EMPLOYEE_BUSY)
+            ->and(refusalOf(fn () => book($customer, $service, $employee, tuesdayAt('11:10'))))->toBe(BookingRefused::REASON_CUSTOMER_BUSY);
+
+        // An inactive service is refused before any overlap is looked at.
+        $service->update(['is_active' => false]);
+        expect(refusalOf(fn () => book($customer, $service, $employee, tuesdayAt('09:00'))))->toBe(BookingRefused::REASON_NOT_BOOKABLE);
+    });
+
+    it('accepts the start in any time zone', function (string $timezone) {
+        [$employee, $service] = bookableEmployee();
+
+        $booking = book(User::factory()->customer()->create(), $service, $employee, tuesdayAt('09:15')->setTimezone($timezone));
+
+        expect($booking->refresh()->starts_at->toDateTimeString())->toBe('2026-12-01 08:15:00');
+    })->with(['UTC', 'America/New_York', 'Asia/Tokyo']);
+
+    it('stores summer-time bookings with the summer offset', function () {
+        [$employee, $service] = bookableEmployee();
+
+        // Tuesday 2027-03-30, after the switch to CEST (UTC+2) on 2027-03-28.
+        $booking = book(User::factory()->customer()->create(), $service, $employee, tuesdayAt('09:00', '2027-03-30'));
+
+        expect($booking->refresh()->starts_at->toDateTimeString())->toBe('2027-03-30 07:00:00')
+            ->and($booking->ends_at->toDateTimeString())->toBe('2027-03-30 07:30:00');
+    });
+
+    it('stores blank notes as null', function (?string $notes) {
+        [$employee, $service] = bookableEmployee();
+
+        $booking = app(CreateBooking::class)->handle(User::factory()->customer()->create(), $service, $employee, tuesdayAt('09:00'), $notes);
+
+        expect($booking->refresh()->notes)->toBeNull();
+    })->with(['null' => [null], 'empty' => [''], 'whitespace' => ['   ']]);
+
+    it('keeps the snapshot when the service changes afterwards', function () {
+        [$employee, $service] = bookableEmployee();
+        $booking = book(User::factory()->customer()->create(), $service, $employee, tuesdayAt('09:00'));
+
+        $service->update(['price_cents' => 9900, 'duration_minutes' => 60]);
+
+        expect($booking->refresh()->price_cents)->toBe(2500)
+            ->and($booking->duration_minutes)->toBe(30)
+            ->and($booking->ends_at->toDateTimeString())->toBe('2026-12-01 08:30:00');
+    });
+});
+
 describe('POST /bookings', function () {
+    it('goes back with a message when the start is not an offered slot', function () {
+        [$employee, $service] = bookableEmployee();
+
+        actingAs(User::factory()->customer()->create())
+            ->post(route('bookings.store'), bookingInput($service, $employee, '2026-12-01T09:10:00+01:00'))
+            ->assertSessionHasErrors(['starts_at' => 'Dit tijdstip is niet beschikbaar. Kies een van de aangeboden tijdstippen.']);
+
+        expect(Booking::count())->toBe(0);
+    });
+
+    it('puts an inactive service on the employee field', function () {
+        [$employee, $service] = bookableEmployee();
+        $service->update(['is_active' => false]);
+
+        actingAs(User::factory()->customer()->create())
+            ->post(route('bookings.store'), bookingInput($service, $employee))
+            ->assertSessionHasErrors(['employee_id' => 'Deze medewerker kan deze dienst niet uitvoeren. Kies een andere medewerker of dienst.']);
+
+        expect(Booking::count())->toBe(0);
+    });
+
+    it('accepts a summer-time start with a +02:00 offset', function () {
+        [$employee, $service] = bookableEmployee();
+
+        actingAs(User::factory()->customer()->create())
+            ->post(route('bookings.store'), bookingInput($service, $employee, '2027-03-30T09:00:00+02:00'))
+            ->assertSessionHasNoErrors()
+            ->assertSessionHas('status', 'Je afspraak op 30-03-2027 om 09:00 is geboekt.');
+
+        expect(Booking::sole()->starts_at->toDateTimeString())->toBe('2027-03-30 07:00:00');
+    });
+
     it('lets a customer book a free slot and shows the booking', function () {
         [$employee, $service] = bookableEmployee();
         $customer = User::factory()->customer()->create();
