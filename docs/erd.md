@@ -112,8 +112,8 @@ erDiagram
 
 ### Two kinds of time
 - `working_hours` and `schedule_exceptions` store **local wall-clock time** (`TIME`/`DATE` in `Europe/Amsterdam`). "Works 09:00-17:00 on Mondays" must stay 09:00-17:00 across daylight-saving changes, which UTC would break.
-- `bookings` store **UTC** (`DATETIME`). A booking is a concrete moment in time.
-- The slot calculation (ISSUE-11) converts the local schedule into concrete UTC ranges for a given date, and ISSUE-14 covers the switch weekends.
+- `bookings` store **UTC** (`DATETIME`). A booking is a concrete moment in time. The model converts any Carbon to UTC before writing (`StoresDatesInUtc`, ISSUE-14).
+- The slot calculation (ISSUE-11) converts the local schedule into concrete UTC ranges for a given date with `App\Scheduling\LocalTime::at()`. On the switch weekends (ISSUE-14, see [decisions.md](decisions.md) section 3) a time in the skipped March hour means the moment of the jump, and a time in the repeated October hour its first occurrence.
 
 ### `blocked_until` instead of computing the buffer
 The overlap check has to be a simple, indexable range comparison. Storing `blocked_until = ends_at + buffer` means two bookings of the same employee overlap when:
@@ -175,7 +175,7 @@ Exceptions do not touch existing bookings: a booking on a new day off stays and 
 - **Fit:** the appointment itself (service duration) must end within the same working range. The buffer after it may run past the end of working time (tidying up after the last customer).
 - **Existing bookings:** every `requested` or `confirmed` booking of the employee blocks `starts_at` up to `blocked_until`, whatever service it is for (`Booking::blockingBetween()`). A new slot is free when its own `starts_at` up to `blocked_until` (duration + buffer) does not overlap any of them. This is the same overlap rule as above, so booking creation (ISSUE-12) re-checks with the same scope and never rejects an offered slot for overlap. Touching is allowed: a slot may start when the previous blocked time ends.
 - **Past:** start times before now are left out; a slot starting exactly now is still offered. There is no minimum lead time yet.
-- **Time zones:** each range boundary is converted from Europe/Amsterdam to UTC, and durations are added in elapsed time. The switch weekends are ISSUE-14.
+- **Time zones:** each range boundary is converted from Europe/Amsterdam to UTC, and start times, durations and buffers step in elapsed time (ISSUE-14). When the clock jumps forward no start between 02:00 and 03:00 is offered, so 01:00-04:00 gives 2 hours of slots. When it goes back, 02:00-02:59 is offered twice, so 01:00-04:00 gives 4 hours, and `Slot::label()` reads "02:30 (zomertijd)" / "02:30 (wintertijd)".
 
 ### Creating a booking
 A customer books a free slot with `POST /bookings` (`bookings.store`, ISSUE-12). Only users with the customer role may do this (`role:customer`, others get 403). The rules live in `App\Bookings\CreateBooking`, which has no HTTP and is called by `BookingController::store`.
