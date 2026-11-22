@@ -190,7 +190,7 @@ A customer books a free slot with `POST /bookings` (`bookings.store`, ISSUE-12).
   Checks 2 and 3 come before 4 so the customer gets the specific reason. Touching is allowed in both overlap checks.
 - **Stored:** times from the matching `Slot` (UTC), a snapshot of `duration_minutes` and `price_cents`, status `requested`. Confirming is ISSUE-18.
 - **Result:** a redirect to the booking with a confirmation. A refusal redirects back with the input and the message on the field.
-- The checks and the insert run in one transaction. Locking the employee row so simultaneous requests cannot both pass the checks is ISSUE-13 (see *Concurrency*).
+- The checks and the insert run in one transaction that first locks the employee and the customer row, so simultaneous requests cannot both pass the checks (ISSUE-13, see *Concurrency*).
 
 ### Deleting data
 Employees and services are **deactivated** (`is_active = false`), not deleted, because bookings reference them. Foreign keys from `bookings` use `RESTRICT` on delete. Deleting a user is out of scope for now. `employee_service`, `working_hours` and `schedule_exceptions` cascade when their employee is deleted; `employee_service` also cascades when a service (without bookings) is deleted.
@@ -213,11 +213,13 @@ Employees and services are **deactivated** (`is_active = false`), not deleted, b
 
 Preventing double bookings (ISSUE-13) is done in the application, because MySQL has no exclusion constraint for time ranges. Creating a booking runs in one transaction that:
 
-1. locks the employee row (`SELECT ... FOR UPDATE`, `lockForUpdate()`),
-2. re-checks for overlap with the query above,
+1. locks the employee row, then the customer's `users` row (`SELECT ... FOR UPDATE`, `lockForUpdate()`),
+2. re-checks for overlap with the queries above,
 3. inserts the booking.
 
-Locking the `employees` row serialises bookings per employee without blocking other employees.
+Locking the `employees` row serialises bookings per employee without blocking other employees. Locking the customer's row as well serialises one customer's requests for different employees, so check 3 (the customer is free) cannot be raced either. The lock order is always employee, then customer, so two requests never wait on each other in a cycle (no deadlock). A request that has to wait sees the other's committed booking once it gets the lock and is refused with the normal message. The locks must be the first queries in the transaction, because InnoDB takes the REPEATABLE READ snapshot at the first plain read.
+
+SQLite ignores `lockForUpdate()`. The test that replays the race (`tests/Concurrency/ConcurrentBookingTest.php`) therefore only runs on MySQL/MariaDB (the CI job *Tests (MySQL 8)*) and is skipped on SQLite.
 
 ## Open points
 
