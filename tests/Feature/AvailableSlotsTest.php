@@ -194,6 +194,55 @@ it('leaves out start times that have already passed today', function () {
         ->toBe(['11:30']);
 });
 
+it('sees a booking right after working time that the new buffer would run into', function () {
+    [$employee, $service] = tuesdaySetup();
+    // 11:30 + 30 min + 15 min buffer = 12:15, overlapping a booking at 12:00.
+    // Proves the booking query window is extended by the service buffer.
+    bookedAt($employee, '12:00', 30);
+
+    expect(freeSlots($service, $employee))->toBe(array_slice(fullTuesday(), 0, -1));
+});
+
+it('ignores a booking that ends exactly when working time starts', function () {
+    [$employee, $service] = tuesdaySetup();
+    bookedAt($employee, '08:00', 45, buffer: 15);
+
+    expect(freeSlots($service, $employee))->toBe(fullTuesday());
+});
+
+it('offers the last start for a service without buffer, even with a booking at closing time', function () {
+    [$employee] = tuesdaySetup();
+    $service = Service::factory()->create(['duration_minutes' => 30, 'buffer_minutes' => 0]);
+    $employee->services()->attach($service);
+    bookedAt($employee, '12:00', 30);
+
+    expect(freeSlots($service, $employee))->toBe(fullTuesday());
+});
+
+it('offers slots in both blocks of a split weekly shift', function () {
+    $employee = Employee::factory()->create();
+    WorkingHour::factory()->for($employee)->on(Weekday::Tuesday, '09:00', '10:00')->create();
+    WorkingHour::factory()->for($employee)->on(Weekday::Tuesday, '13:00', '14:00')->create();
+    $service = Service::factory()->create(['duration_minutes' => 60, 'buffer_minutes' => 0]);
+    $employee->services()->attach($service);
+
+    expect(freeSlots($service, $employee))->toBe(['09:00', '13:00']);
+});
+
+it('offers nothing on a day that has already passed', function () {
+    [$employee, $service] = tuesdaySetup();
+    travelTo(CarbonImmutable::parse('2026-12-02 08:00', 'Europe/Amsterdam'));
+
+    expect(freeSlots($service, $employee))->toBe([]);
+});
+
+it('accepts any DateTimeInterface as the date', function () {
+    [$employee, $service] = tuesdaySetup();
+    $slots = app(AvailableSlots::class)->for($service, $employee, new DateTimeImmutable('2026-12-01'));
+
+    expect(array_map(fn (Slot $slot): string => $slot->label(), $slots))->toBe(fullTuesday());
+});
+
 it('takes the interval from config', function () {
     [$employee, $service] = tuesdaySetup();
     config(['booking.slot_interval' => 60]);

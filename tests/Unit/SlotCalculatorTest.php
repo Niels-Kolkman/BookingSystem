@@ -181,6 +181,83 @@ describe('time', function () {
     });
 });
 
+describe('edge cases', function () {
+    it('offers the last start that still fits when the interval does not divide the range', function () {
+        // 09:00-10:10, 25 min: 09:45 ends 10:10 exactly; 10:00 would end 10:25.
+        expect(slotStarts(computeSlots(['09:00-10:10'], duration: 25)))
+            ->toBe(['09:00', '09:15', '09:30', '09:45']);
+    });
+
+    it('does not join adjacent ranges for one appointment', function () {
+        // The calculator keeps ranges apart; DaySchedule is responsible for merging.
+        expect(computeSlots(['09:00-10:00', '10:00-11:00'], duration: 90))->toBe([]);
+    });
+
+    it('does not depend on the order or overlap of busy periods', function () {
+        $busy = [slotBusy('10:30', '11:00'), slotBusy('09:15', '09:45'), slotBusy('09:30', '10:00')];
+
+        expect(slotStarts(computeSlots(['09:00-11:00'], duration: 30, busy: $busy)))
+            ->toBe(['10:00'])
+            ->and(slotStarts(computeSlots(['09:00-11:00'], duration: 30, busy: array_reverse($busy))))
+            ->toBe(['10:00']);
+    });
+
+    it('skips a start when a busy period only overlaps its buffer', function () {
+        // 09:00 + 30 min = 09:30, buffer until 09:40; the busy period starts at 09:35.
+        expect(computeSlots(['09:00-09:30'], duration: 30, buffer: 10, busy: [slotBusy('09:35', '10:00')]))
+            ->toBe([]);
+    });
+
+    it('allows a start right where a busy period ends', function () {
+        expect(slotStarts(computeSlots(['09:00-10:00'], duration: 30, buffer: 15, busy: [slotBusy('08:00', '09:00')])))
+            ->toBe(['09:00', '09:15', '09:30']);
+    });
+
+    it('returns nothing when the moment is after the whole day', function () {
+        expect(computeSlots(['09:00-12:00'], duration: 30, notBefore: slotLocal('00:00', '2026-12-02')))->toBe([]);
+    });
+
+    it('compares notBefore as a moment, whatever its timezone', function () {
+        // 08:30 UTC is 09:30 in Amsterdam in winter.
+        $notBefore = CarbonImmutable::parse('2026-12-01 08:30', 'UTC');
+
+        expect(slotStarts(computeSlots(['09:00-10:00'], duration: 30, notBefore: $notBefore)))
+            ->toBe(['09:30']);
+    });
+
+    it('compares busy periods as moments, whatever their timezone', function () {
+        $busy = new BusyPeriod(slotLocal('09:00'), slotLocal('09:30'));
+
+        expect(slotStarts(computeSlots(['09:00-10:00'], duration: 30, busy: [$busy])))
+            ->toBe(['09:30']);
+    });
+
+    it('handles a one-minute duration on a one-minute interval', function () {
+        expect(slotStarts(computeSlots(['09:00-09:03'], duration: 1, interval: 1)))
+            ->toBe(['09:00', '09:01', '09:02']);
+    });
+});
+
+describe('toUtc', function () {
+    it('converts minutes since local midnight to UTC', function (string $date, int $minutes, string $expected) {
+        $utc = SlotCalculator::toUtc(CarbonImmutable::parse($date, 'Europe/Amsterdam'), $minutes);
+
+        expect($utc->getTimezone()->getName())->toBe('UTC')
+            ->and($utc->format('Y-m-d H:i'))->toBe($expected);
+    })->with([
+        'midnight in winter' => ['2026-12-01', 0, '2026-11-30 23:00'],
+        '09:15 in winter' => ['2026-12-01', 9 * 60 + 15, '2026-12-01 08:15'],
+        '09:15 in summer' => ['2027-06-15', 9 * 60 + 15, '2027-06-15 07:15'],
+        '24:00 is the next local midnight' => ['2026-12-01', TimeRange::MINUTES_PER_DAY, '2026-12-01 23:00'],
+    ]);
+
+    it('uses only the calendar date of the given date, not its time', function () {
+        $date = CarbonImmutable::parse('2026-12-01 17:45', 'Europe/Amsterdam');
+
+        expect(SlotCalculator::toUtc($date, 9 * 60)->format('Y-m-d H:i'))->toBe('2026-12-01 08:00');
+    });
+});
+
 describe('invalid input', function () {
     it('rejects a duration, buffer or interval out of range', function (int $duration, int $buffer, int $interval) {
         computeSlots(['09:00-10:00'], duration: $duration, buffer: $buffer, interval: $interval);
