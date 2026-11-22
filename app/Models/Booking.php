@@ -6,6 +6,7 @@ use App\Enums\BookingStatus;
 use App\Enums\UserRole;
 use Carbon\CarbonImmutable;
 use Database\Factories\BookingFactory;
+use Illuminate\Database\Eloquent\Attributes\Scope;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
@@ -73,6 +74,22 @@ class Booking extends Model
     public function service(): BelongsTo
     {
         return $this->belongsTo(Service::class);
+    }
+
+    /**
+     * Bookings that take up the employee's time between two UTC moments:
+     * a blocking status and an overlap including the buffer (docs/erd.md):
+     * starts_at < $until AND blocked_until > $from. The slot calculation
+     * (ISSUE-11) uses this; booking creation (ISSUE-13) re-checks with it.
+     *
+     * @param  Builder<Booking>  $query
+     */
+    #[Scope]
+    protected function blockingBetween(Builder $query, CarbonImmutable $from, CarbonImmutable $until): void
+    {
+        $query->whereIn('status', array_map(fn (BookingStatus $s): string => $s->value, BookingStatus::blocking()))
+            ->where('starts_at', '<', $until->utc())
+            ->where('blocked_until', '>', $from->utc());
     }
 
     /**
