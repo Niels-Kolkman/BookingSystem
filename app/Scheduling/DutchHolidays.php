@@ -15,7 +15,7 @@ use DateTimeInterface;
  */
 final class DutchHolidays
 {
-    public const TIMEZONE = 'Europe/Amsterdam';
+    public const TIMEZONE = LocalTime::TIMEZONE;
 
     /**
      * All holidays of a year, in date order.

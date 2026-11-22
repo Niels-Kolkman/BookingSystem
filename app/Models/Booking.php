@@ -4,6 +4,7 @@ namespace App\Models;
 
 use App\Enums\BookingStatus;
 use App\Enums\UserRole;
+use App\Models\Concerns\StoresDatesInUtc;
 use Carbon\CarbonImmutable;
 use Database\Factories\BookingFactory;
 use Illuminate\Database\Eloquent\Attributes\Scope;
@@ -18,6 +19,9 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
  * No attributes are mass assignable: bookings are created by
  * App\Bookings\CreateBooking (ISSUE-12), which sets every attribute itself
  * from the chosen slot and a snapshot of the service.
+ *
+ * All times are moments, stored in UTC whatever zone they are given in
+ * (StoresDatesInUtc, ISSUE-14). Show them with App\Scheduling\LocalTime.
  *
  * @property int $id
  * @property int $customer_id
@@ -35,6 +39,8 @@ class Booking extends Model
 {
     /** @use HasFactory<BookingFactory> */
     use HasFactory;
+
+    use StoresDatesInUtc;
 
     /**
      * @return array<string, string>

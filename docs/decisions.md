@@ -26,7 +26,16 @@ Short records of the choices that shape this project, and why they were made.
 
 **Decision:** All timestamps are stored in UTC. Presentation and slot calculation use the `Europe/Amsterdam` time zone.
 
-**Why:** Daylight-saving changes make local times ambiguous (02:00-03:00 on the switch weekends). Storing UTC avoids that, and slot calculation in local time keeps "09:00" meaning 09:00 for the customer. Details and tests are tracked in ISSUE-14.
+**Why:** Daylight-saving changes make local times ambiguous (02:00-03:00 on the switch weekends). Storing UTC avoids that, and slot calculation in local time keeps "09:00" meaning 09:00 for the customer.
+
+**How (ISSUE-14):**
+- `config/app.php` fixes the app time zone to `UTC`. `Booking` converts every date to UTC before writing (`App\Models\Concerns\StoresDatesInUtc`), because Laravel would otherwise store a Carbon's own wall-clock time, so an Amsterdam time would land one or two hours off.
+- `App\Scheduling\LocalTime` is the one place that converts between wall-clock time and moments, and formats moments for display. Views use `LocalTime::dateTime()` / `LocalTime::time()`, not `->timezone(...)->format(...)`.
+- **Clock jumps forward** (last Sunday of March, 02:00 → 03:00): a wall-clock time between 02:00 and 03:00 does not exist and means the moment of the jump. A working block "01:00-02:30" ends at the jump, "02:30-04:00" starts at it, so no start in that hour is ever offered.
+- **Clock goes back** (last Sunday of October, 03:00 → 02:00): 02:00-02:59 happens twice. A wall-clock time in it (a schedule boundary) means its first occurrence, in summer time. Slots step in real time, so both hours are offered, and they are shown as "02:30 (zomertijd)" and "02:30 (wintertijd)". The suffix only appears in that hour.
+- Durations and buffers are real elapsed minutes: a 60-minute appointment at 01:30 on the March night ends at 03:30 on the clock.
+- Booking input carries a numeric offset (`2026-10-25T02:30:00+01:00`), so the customer's choice is never ambiguous.
+- Tests: `tests/Unit/LocalTimeTest.php`, `tests/Unit/SlotCalculatorDstTest.php`, `tests/Feature/TimeZoneTest.php`.
 
 ## 4. Authorization: role middleware + policies
 

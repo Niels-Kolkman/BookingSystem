@@ -9,7 +9,7 @@ use App\Models\Booking;
 use App\Models\Employee;
 use App\Models\Service;
 use App\Models\User;
-use App\Scheduling\DutchHolidays;
+use App\Scheduling\LocalTime;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\View\View;
@@ -59,10 +59,10 @@ class BookingController extends Controller
             return back()->withInput()->withErrors([$refused->field => $refused->getMessage()]);
         }
 
-        $start = $booking->starts_at->setTimezone(DutchHolidays::TIMEZONE);
+        $start = LocalTime::toLocal($booking->starts_at);
 
         return redirect()->route('bookings.show', $booking)
-            ->with('status', 'Je afspraak op '.$start->format('d-m-Y').' om '.$start->format('H:i').' is geboekt.');
+            ->with('status', 'Je afspraak op '.$start->format('d-m-Y').' om '.LocalTime::time($start).' is geboekt.');
     }
 
     /**

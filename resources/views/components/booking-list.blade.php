@@ -8,7 +8,7 @@
         @foreach ($bookings as $booking)
             <li class="p-3 text-sm">
                 <a href="{{ route('bookings.show', $booking) }}" class="font-medium hover:underline">
-                    {{ $booking->starts_at->timezone('Europe/Amsterdam')->format('d-m-Y H:i') }}
+                    {{ \App\Scheduling\LocalTime::dateTime($booking->starts_at) }}
                     &middot; {{ $booking->service->name }}
                 </a>
                 <div class="text-gray-600">
