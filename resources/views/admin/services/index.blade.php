@@ -25,7 +25,11 @@
                                     + {{ $service->buffer_minutes }} min buffer
                                 @endif
                                 &middot; {{ $service->formattedPrice() }}
+                                &middot; {{ $service->active_employees_count === 1 ? '1 medewerker' : $service->active_employees_count.' medewerkers' }}
                             </div>
+                            @if ($service->is_active && $service->active_employees_count === 0)
+                                <div class="text-amber-700">Geen actieve medewerker gekoppeld: deze dienst kan nog niet geboekt worden.</div>
+                            @endif
                         </div>
 
                         {{-- Services with bookings can only be deactivated (see ServiceController::destroy). --}}

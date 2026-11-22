@@ -2,6 +2,7 @@
 
 namespace App\Http\Requests\Admin;
 
+use App\Models\Employee;
 use App\Models\Service;
 use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Validation\Rule;
@@ -40,7 +41,25 @@ class ServiceRequest extends FormRequest
             // e.g. "25", "25,5" or "25.50". Stored as cents.
             'price' => ['required', 'string', 'regex:/^\d{1,4}([.,]\d{1,2})?$/'],
             'is_active' => ['boolean'],
+            // Employees who can perform the service (ISSUE-8). Leaving all
+            // boxes unchecked is allowed: the service is then not bookable
+            // until someone is linked, which the overview points out.
+            'employee_ids' => ['array'],
+            'employee_ids.*' => ['integer', 'distinct', Rule::exists(Employee::class, 'id')],
         ];
+    }
+
+    /**
+     * Ids of the employees to link, without duplicates.
+     *
+     * @return list<int>
+     */
+    public function employeeIds(): array
+    {
+        /** @var list<int|string> $ids */
+        $ids = $this->validated('employee_ids', []);
+
+        return array_values(array_unique(array_map('intval', $ids)));
     }
 
     /**
@@ -64,6 +83,8 @@ class ServiceRequest extends FormRequest
             'duration_minutes' => 'duur',
             'buffer_minutes' => 'buffertijd',
             'price' => 'prijs',
+            'employee_ids' => 'medewerkers',
+            'employee_ids.*' => 'medewerker',
         ];
     }
 
