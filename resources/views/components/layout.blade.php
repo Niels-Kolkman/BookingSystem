@@ -19,6 +19,9 @@
 
                 <div class="flex items-center gap-4 text-sm">
                     @auth
+                        @if (auth()->user()->isCustomer())
+                            <a href="{{ route('bookings.create') }}" class="hover:underline">Afspraak maken</a>
+                        @endif
                         <a href="{{ route('bookings.index') }}" class="hover:underline">
                             {{ auth()->user()->isCustomer() ? 'Mijn boekingen' : 'Boekingen' }}
                         </a>

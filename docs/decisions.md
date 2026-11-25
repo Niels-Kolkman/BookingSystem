@@ -58,7 +58,17 @@ Short records of the choices that shape this project, and why they were made.
 
 **Why:** Deleting a booked service would break booking history, and the foreign key forbids it anyway. Cents avoid rounding errors in totals.
 
-## 6. Tooling
+## 6. Booking page: server-rendered steps, enhanced with plain JavaScript
+
+**Decision:** Customers book on `/bookings/create` (ISSUE-15) in four steps: service, employee, date, time.
+- The page is complete without JavaScript: the first form goes back to the page with `service_id`, `employee_id` and `date` in the query string, and the free times are rendered on the server.
+- `resources/js/booking-flow.js` (no framework) opens the steps on the page. Employees come from a list embedded in the page; free times are fetched live from `GET /bookings/slots` (JSON, customers only) on every change, and an older request still running is cancelled.
+- The booking is posted to the existing `POST /bookings` as JSON. A time that was just taken by someone else (`BookingRefused::isConflict()`) answers **409** with the message; the page shows it and fetches the free times again. Other refusals answer 422 in Laravel's validation-error shape. Without JavaScript the same refusal goes back to the page, which shows the message next to fresh free times.
+- Slots are sent as local time with their offset (`Slot::inputValue()`), so the two 02:30s of the night the clock goes back stay apart.
+
+**Why:** The slot rules already live on the server (ISSUE-11 to 14); rendering the same data on the server keeps one source of truth and keeps the page usable when the script fails to load. A few small fetches did not justify a frontend framework.
+
+## 7. Tooling
 
 - **Tests:** Pest (on top of PHPUnit).
 - **Static analysis:** Larastan, level 6.
