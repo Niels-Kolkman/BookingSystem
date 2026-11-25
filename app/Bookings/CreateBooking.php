@@ -3,6 +3,7 @@
 namespace App\Bookings;
 
 use App\Enums\BookingStatus;
+use App\Jobs\SendBookingConfirmation;
 use App\Models\Booking;
 use App\Models\Employee;
 use App\Models\Service;
@@ -39,6 +40,10 @@ use Illuminate\Support\Facades\DB;
  * employees and customers are not held up. The order (employee, then
  * customer) is fixed so two requests never wait on each other in a cycle.
  * SQLite ignores lockForUpdate(); the guarantee needs MySQL/MariaDB.
+ *
+ * After the booking is committed the confirmation mail with the .ics file
+ * is queued (ISSUE-19, SendBookingConfirmation); a refused booking gets
+ * none. Sending never happens during the request.
  */
 final readonly class CreateBooking
 {
@@ -61,7 +66,7 @@ final readonly class CreateBooking
         $endsAt = $startsAt->addMinutes($service->duration_minutes);
         $blockedUntil = $endsAt->addMinutes($service->buffer_minutes);
 
-        return DB::transaction(function () use ($customer, $service, $employee, $startsAt, $endsAt, $blockedUntil, $notes): Booking {
+        $booking = DB::transaction(function () use ($customer, $service, $employee, $startsAt, $endsAt, $blockedUntil, $notes): Booking {
             $this->lockAgendas($employee, $customer);
 
             if ($employee->bookings()->blockingBetween($startsAt, $blockedUntil)->exists()) {
@@ -92,6 +97,10 @@ final readonly class CreateBooking
 
             return $booking;
         });
+
+        SendBookingConfirmation::dispatch($booking);
+
+        return $booking;
     }
 
     /**

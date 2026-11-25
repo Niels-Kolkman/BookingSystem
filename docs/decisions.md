@@ -80,7 +80,19 @@ Short records of the choices that shape this project, and why they were made.
 
 **Why:** The issue asks that the old slot is only freed once the change succeeds. Updating in place does this by construction: until the commit the row still holds the old time, and a refusal or error rolls back. Cancel-and-rebook would need two rows and a moment where the old one is already cancelled, and it would change the booking's id and history. Using the cancellation deadline stops moving from becoming a way around it. Changing the employee or service is a different booking (other price, duration, agenda), so it stays out of scope.
 
-## 9. Tooling
+## 9. Confirmation mail: a queued job, after commit, with an .ics file
+
+**Decision:** After a booking is made, `CreateBooking` dispatches `App\Jobs\SendBookingConfirmation` (ISSUE-19). The job runs on the queue (`QUEUE_CONNECTION=database` by default; run a worker with `php artisan queue:work`, or use `composer dev`) and sends `App\Mail\BookingConfirmation` to the customer.
+- **After commit** (`ShouldQueueAfterCommit`): the job is only queued once the booking is committed. A refused or rolled-back booking never gets a mail, even when `CreateBooking` runs inside an outer transaction.
+- **The worker decides:** the job only carries the booking id and loads the booking fresh, so the mail shows the time the booking has then. A booking that no longer takes up time (cancelled in the meantime) gets no confirmation.
+- **Retries:** 5 tries, waiting 30 s, 2 min, 10 min, then 30 min. After that the job lands in `failed_jobs` (`php artisan queue:retry`).
+- **The .ics file** (`App\Bookings\BookingCalendarEvent`, RFC 5545) holds one event from `starts_at` to `ends_at`. The buffer is the employee's time, so it is left out. Times are written in UTC (`...Z`), so the file needs no time-zone block and the daylight-saving nights need no special care. The UID is stable per booking (`booking-{id}@{APP_URL host}`), so a later file for the same booking with a higher `SEQUENCE` updates the event instead of adding one. `STATUS` is `TENTATIVE` while the booking is requested and `CONFIRMED` once it is confirmed. Text is escaped and lines are folded at 75 octets.
+
+**Why:** The issue asks for queued, not synchronous, sending. A slow or broken mail server must not slow down or break booking; with the mail in a separate job, a mail failure is retried and never undoes the booking. Making the job, not the mailable, the queued unit lets it check the booking's state at send time. UTC in the .ics file reuses decision 3 and avoids shipping VTIMEZONE rules.
+
+**Not in scope:** mails for moving or cancelling a booking, and the reminder (ISSUE-20). The stable UID and `SEQUENCE` are there so they can send an updated or cancelled event later.
+
+## 10. Tooling
 
 - **Tests:** Pest (on top of PHPUnit).
 - **Static analysis:** Larastan, level 6.
