@@ -14,13 +14,18 @@ use App\Models\WorkingHour;
 use Carbon\CarbonImmutable;
 use Illuminate\Contracts\Queue\ShouldQueueAfterCommit;
 use Illuminate\Mail\Transport\ArrayTransport;
+use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Mail;
 use Illuminate\Support\Facades\Queue;
+use Symfony\Component\Mailer\Exception\TransportException;
+use Symfony\Component\Mailer\SentMessage;
+use Symfony\Component\Mailer\Transport\AbstractTransport;
 use Symfony\Component\Mime\Email;
 use Symfony\Component\Mime\Part\DataPart;
 
 use function Pest\Laravel\actingAs;
+use function Pest\Laravel\travel;
 use function Pest\Laravel\travelTo;
 
 /*
@@ -194,7 +199,154 @@ describe('the job', function () {
     });
 });
 
+/**
+ * A mailer whose server is down.
+ */
+function bcBreakMailer(): void
+{
+    Mail::extend('down', fn () => new class extends AbstractTransport
+    {
+        protected function doSend(SentMessage $message): void
+        {
+            throw new TransportException('Connection refused');
+        }
+
+        public function __toString(): string
+        {
+            return 'down://';
+        }
+    });
+    config(['mail.mailers.down' => ['transport' => 'down'], 'mail.default' => 'down']);
+    app('mail.manager')->forgetMailers();
+}
+
+function bcRunWorkerOnce(): void
+{
+    Artisan::call('queue:work', ['connection' => 'database', '--once' => true]);
+}
+
+describe('the job, per status', function () {
+    it('mails only a booking that still takes up time', function (BookingStatus $status, bool $mailed) {
+        Mail::fake();
+        $booking = Booking::factory()->create(['status' => $status]);
+
+        (new SendBookingConfirmation($booking))->handle();
+
+        $mailed ? Mail::assertSent(BookingConfirmation::class, 1) : Mail::assertNothingSent();
+    })->with([
+        'requested' => [BookingStatus::Requested, true],
+        'confirmed' => [BookingStatus::Confirmed, true],
+        'cancelled' => [BookingStatus::Cancelled, false],
+        'completed' => [BookingStatus::Completed, false],
+        'no-show' => [BookingStatus::NoShow, false],
+    ]);
+
+    it('checks the status the booking has when the worker runs, not when it was queued', function () {
+        Queue::fake();
+        Mail::fake();
+        [$customer, $employee, $service] = bcSetup();
+        $booking = bcBook($customer, $employee, $service);
+        $payload = serialize(new SendBookingConfirmation($booking));
+
+        Booking::query()->whereKey($booking->id)->update(['status' => BookingStatus::Cancelled->value]);
+
+        /** @var SendBookingConfirmation $job */
+        $job = unserialize($payload);
+        $job->handle();
+
+        Mail::assertNothingSent();
+    });
+});
+
+describe('the worker', function () {
+    it('drops the job without failing when the booking is gone before it runs', function () {
+        config(['queue.default' => 'database']);
+        [$customer, $employee, $service] = bcSetup();
+        $booking = bcBook($customer, $employee, $service);
+        expect(DB::table('jobs')->count())->toBe(1);
+
+        $booking->delete();
+        bcRunWorkerOnce();
+
+        /** @var ArrayTransport $transport */
+        $transport = Mail::mailer()->getSymfonyTransport();
+        expect($transport->messages())->toHaveCount(0)
+            ->and(DB::table('jobs')->count())->toBe(0)
+            ->and(DB::table('failed_jobs')->count())->toBe(0);
+    });
+
+    it('delivers the queued mail when the worker runs', function () {
+        config(['queue.default' => 'database']);
+        [$customer, $employee, $service] = bcSetup();
+        bcBook($customer, $employee, $service);
+
+        bcRunWorkerOnce();
+
+        /** @var ArrayTransport $transport */
+        $transport = Mail::mailer()->getSymfonyTransport();
+        expect($transport->messages())->toHaveCount(1)
+            ->and(DB::table('jobs')->count())->toBe(0);
+    });
+
+    it('keeps the booking and retries later when the mail server is down', function () {
+        config(['queue.default' => 'database']);
+        bcBreakMailer();
+        [$customer, $employee, $service] = bcSetup();
+        $booking = bcBook($customer, $employee, $service);
+
+        bcRunWorkerOnce();
+
+        $job = DB::table('jobs')->sole();
+        expect((int) $job->attempts)->toBe(1)
+            // The first backoff: 30 seconds.
+            ->and((int) $job->available_at)->toBe(now()->getTimestamp() + 30)
+            ->and(DB::table('failed_jobs')->count())->toBe(0)
+            ->and($booking->fresh()?->status)->toBe(BookingStatus::Requested);
+    });
+
+    it('moves the job to failed_jobs after the fifth try, keeping the booking', function () {
+        config(['queue.default' => 'database']);
+        bcBreakMailer();
+        [$customer, $employee, $service] = bcSetup();
+        bcBook($customer, $employee, $service);
+
+        foreach ([30, 120, 600, 1800] as $pause) {
+            bcRunWorkerOnce();
+            travel($pause + 1)->seconds();
+        }
+        expect(DB::table('jobs')->count())->toBe(1);
+        bcRunWorkerOnce();
+
+        expect(DB::table('jobs')->count())->toBe(0)
+            ->and(DB::table('failed_jobs')->count())->toBe(1)
+            ->and((string) DB::table('failed_jobs')->value('exception'))->toContain('Connection refused')
+            ->and(Booking::count())->toBe(1);
+    });
+});
+
 describe('the mail', function () {
+    it('leaves out the notes when the customer gave none', function () {
+        Queue::fake();
+        [$customer, $employee, $service] = bcSetup();
+
+        $mail = new BookingConfirmation(bcBook($customer, $employee, $service, notes: '   '));
+
+        $mail->assertDontSeeInHtml('Je opmerking');
+    });
+
+    it('shows the status the booking has when the mail is built', function () {
+        Queue::fake();
+        [$customer, $employee, $service] = bcSetup();
+        $booking = bcBook($customer, $employee, $service);
+        $booking->transitionTo(BookingStatus::Confirmed);
+        $booking->save();
+
+        $mail = new BookingConfirmation($booking);
+
+        $mail->assertSeeInHtml('bevestigd')->assertDontSeeInHtml('aangevraagd');
+        expect(BookingCalendarEvent::for($booking))->toContain("STATUS:CONFIRMED\r\n");
+    });
+
     it('has a Dutch subject with the local date and time', function () {
         Queue::fake();
         [$customer, $employee, $service] = bcSetup();
@@ -260,7 +412,9 @@ describe('end to end', function () {
         $email = $messages->first()->getOriginalMessage();
         expect($email)->toBeInstanceOf(Email::class);
         /** @var Email $email */
-        expect($email->getTo()[0]->getAddress())->toBe('eva@example.test')
+        expect($email->getTo())->toHaveCount(1)
+            ->and($email->getTo()[0]->getAddress())->toBe('eva@example.test')
+            ->and($email->getTo()[0]->getName())->toBe('Eva de Vries')
             ->and($email->getSubject())->toBe('Bevestiging van je afspraak op 01-12-2026 om 09:15');
 
         /** @var DataPart|null $ics */

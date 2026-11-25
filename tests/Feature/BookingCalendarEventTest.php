@@ -117,6 +117,8 @@ it('maps the booking status to the event status', function (BookingStatus $statu
     'requested' => [BookingStatus::Requested, 'TENTATIVE'],
     'confirmed' => [BookingStatus::Confirmed, 'CONFIRMED'],
     'cancelled' => [BookingStatus::Cancelled, 'CANCELLED'],
+    'completed' => [BookingStatus::Completed, 'CONFIRMED'],
+    'no-show' => [BookingStatus::NoShow, 'CONFIRMED'],
 ]);
 
 it('describes the appointment in Dutch, local time', function () {
@@ -171,4 +173,82 @@ it('falls back to localhost in the UID when the app URL has no host', function (
     config(['app.url' => '']);
 
     expect(BookingCalendarEvent::uid(icsBooking()))->toEndWith('@localhost');
+});
+
+it('uses only the host of the app URL in the UID, without port or path', function () {
+    config(['app.url' => 'https://salon.example:8443/boeken']);
+    $booking = icsBooking();
+
+    expect(BookingCalendarEvent::uid($booking))->toBe("booking-{$booking->id}@salon.example");
+});
+
+it('writes the given sequence, so a later file for the booking replaces the event', function () {
+    $booking = icsBooking();
+
+    $first = icsProperties(BookingCalendarEvent::for($booking));
+    $later = icsProperties(BookingCalendarEvent::for($booking, 3));
+
+    expect($first['SEQUENCE'])->toBe('0')
+        ->and($later['SEQUENCE'])->toBe('3')
+        ->and($later['UID'])->toBe($first['UID']);
+});
+
+it('stamps the file with the moment it is made, in UTC, also in summer time', function () {
+    $booking = icsBooking('2027-08-01 09:15');
+    travelTo(CarbonImmutable::parse('2027-07-15 14:05:09', 'Europe/Amsterdam'));
+
+    expect(icsProperties(BookingCalendarEvent::for($booking))['DTSTAMP'])->toBe('20270715T120509Z');
+});
+
+it('escapes the app, service and employee names', function () {
+    config(['app.name' => 'Kapper; Knip, & Co']);
+    $booking = icsBooking();
+    $booking->service->update(['name' => 'Wassen, knippen']);
+    $booking->employee->update(['display_name' => 'Sanne; Jan']);
+
+    $properties = icsProperties(BookingCalendarEvent::for($booking->fresh()));
+
+    expect($properties['PRODID'])->toBe('-//Kapper\; Knip\, & Co//Boekingen//NL')
+        ->and($properties['SUMMARY'])->toBe('Wassen\, knippen bij Sanne\; Jan')
+        ->and($properties['DESCRIPTION'])->toStartWith('Dienst: Wassen\, knippen\nMedewerker: Sanne\; Jan\n');
+});
+
+it('leaves out the notes line when the notes are only whitespace', function () {
+    $properties = icsProperties(BookingCalendarEvent::for(icsBooking(attributes: ['notes' => "  \n "])));
+
+    expect($properties['DESCRIPTION'])->not->toContain('Opmerking');
+});
+
+it('does not fold a line of exactly 75 octets, but folds one of 76', function () {
+    // "SUMMARY:" (8) + service + " bij Sanne" (10).
+    $booking = icsBooking();
+    $booking->service->update(['name' => str_repeat('a', 57)]);
+    $exact = BookingCalendarEvent::for($booking->fresh());
+
+    $booking->service->update(['name' => str_repeat('a', 58)]);
+    $over = BookingCalendarEvent::for($booking->fresh());
+
+    expect($exact)->toContain("\r\nSUMMARY:".str_repeat('a', 57)." bij Sanne\r\n")
+        ->and($over)->toContain("\r\nSUMMARY:".str_repeat('a', 58).' bij Sann'."\r\n e\r\n");
+});
+
+it('folds before a multi-byte character that would cross the 75th octet', function () {
+    // "SUMMARY:Knippen bij " is 20 octets; 54 more make 74, then "é" (2 octets).
+    $booking = icsBooking();
+    $booking->employee->update(['display_name' => str_repeat('a', 54).'éb']);
+
+    $ics = BookingCalendarEvent::for($booking->fresh());
+
+    expect($ics)->toContain("\r\nSUMMARY:Knippen bij ".str_repeat('a', 54)."\r\n éb\r\n");
+});
+
+it('keeps continuation lines at 75 octets including the leading space', function () {
+    $ics = BookingCalendarEvent::for(icsBooking(attributes: ['notes' => str_repeat('x', 300)]));
+
+    $continuations = array_filter(explode("\r\n", $ics), fn (string $line): bool => str_starts_with($line, ' '));
+
+    expect($continuations)->not->toBeEmpty();
+    foreach (array_slice($continuations, 0, -1) as $line) {
+        expect(strlen($line))->toBe(75);
+    }
 });
