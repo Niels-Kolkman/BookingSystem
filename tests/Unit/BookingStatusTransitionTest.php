@@ -27,6 +27,30 @@ it('gives every status that blocks time a way out', function (BookingStatus $sta
     expect($status->blocksTime())->toBe(! $status->isFinal());
 })->with('booking statuses');
 
+it('never lists a status as a transition to itself, nor twice', function (BookingStatus $status) {
+    $allowed = $status->allowedTransitions();
+
+    expect($allowed)->not->toContain($status)
+        ->and(array_unique(array_map(fn (BookingStatus $s): string => $s->value, $allowed)))->toHaveCount(count($allowed));
+})->with('booking statuses');
+
+it('reaches every status from requested, where CreateBooking starts', function () {
+    $reached = [BookingStatus::Requested];
+    for ($i = 0; $i < count($reached); $i++) {
+        foreach ($reached[$i]->allowedTransitions() as $next) {
+            if (! in_array($next, $reached, true)) {
+                $reached[] = $next;
+            }
+        }
+    }
+
+    expect($reached)->toHaveCount(count(BookingStatus::cases()));
+});
+
+it('cannot come back to requested once it has left', function (BookingStatus $from) {
+    expect($from->canTransitionTo(BookingStatus::Requested))->toBeFalse();
+})->with('booking statuses');
+
 it('has Dutch labels', function () {
     expect(array_map(fn (BookingStatus $s): string => $s->label(), BookingStatus::cases()))
         ->toBe(['aangevraagd', 'bevestigd', 'geannuleerd', 'voltooid', 'niet verschenen']);
