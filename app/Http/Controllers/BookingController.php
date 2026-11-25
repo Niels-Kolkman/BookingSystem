@@ -3,6 +3,8 @@
 namespace App\Http\Controllers;
 
 use App\Bookings\BookingRefused;
+use App\Bookings\CancelBooking;
+use App\Bookings\CancellationRefused;
 use App\Bookings\CreateBooking;
 use App\Http\Requests\AvailableSlotsRequest;
 use App\Http\Requests\StoreBookingRequest;
@@ -132,9 +134,42 @@ class BookingController extends Controller
      */
     public function show(Booking $booking): View
     {
-        $booking->load(['customer', 'employee', 'service']);
+        $booking->load(['customer', 'employee', 'service', 'cancelledBy']);
 
         return view('bookings.show', ['booking' => $booking]);
+    }
+
+    /**
+     * Cancel a booking (ISSUE-16). The `can:view,booking` route middleware
+     * answers 404 for someone else's booking; whether this user may cancel
+     * it now (customer until the deadline, admin always) is decided by
+     * CancelBooking through BookingPolicy::cancel(). A refusal goes back to
+     * the booking with the reason.
+     */
+    public function cancel(Request $request, Booking $booking, CancelBooking $cancelBooking): RedirectResponse
+    {
+        $validated = $request->validate([
+            'cancellation_reason' => ['nullable', 'string', 'max:'.CancelBooking::REASON_MAX_LENGTH],
+        ], [
+            'cancellation_reason.max' => 'De reden mag maximaal '.CancelBooking::REASON_MAX_LENGTH.' tekens zijn.',
+        ]);
+
+        /** @var User $user */
+        $user = $request->user();
+        $reason = $validated['cancellation_reason'] ?? null;
+
+        try {
+            $cancelBooking->handle($user, $booking, is_string($reason) ? $reason : null);
+        } catch (CancellationRefused $refused) {
+            abort_if($refused->notFound, 404);
+
+            return redirect()->route('bookings.show', $booking)->with('error', $refused->getMessage());
+        }
+
+        $start = LocalTime::toLocal($booking->starts_at);
+
+        return redirect()->route('bookings.show', $booking)
+            ->with('status', 'De afspraak op '.$start->format('d-m-Y').' om '.LocalTime::time($start).' is geannuleerd.');
     }
 
     /**
