@@ -34,9 +34,11 @@ final readonly class AvailableSlots
      *
      * @param  DateTimeInterface  $localDate  only the calendar date is used (Europe/Amsterdam)
      * @param  CarbonImmutable|null  $now  slots before this moment are left out; defaults to the current time
+     * @param  Booking|null  $ignoring  a booking whose time counts as free: the one being moved
+     *                                  (ISSUE-17), so it can move to a slot overlapping its old time
      * @return list<Slot>
      */
-    public function for(Service $service, Employee $employee, DateTimeInterface $localDate, ?CarbonImmutable $now = null): array
+    public function for(Service $service, Employee $employee, DateTimeInterface $localDate, ?CarbonImmutable $now = null, ?Booking $ignoring = null): array
     {
         if (! $service->is_active || ! $employee->canPerform($service)) {
             return [];
@@ -54,6 +56,7 @@ final readonly class AvailableSlots
 
         $busy = $employee->bookings()
             ->blockingBetween($from, $until)
+            ->when($ignoring, fn ($query, Booking $booking) => $query->whereKeyNot($booking->getKey()))
             ->get(['id', 'starts_at', 'blocked_until'])
             ->map(fn (Booking $booking): BusyPeriod => BusyPeriod::fromBooking($booking))
             ->values()

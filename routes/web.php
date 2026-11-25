@@ -65,6 +65,14 @@ Route::middleware('auth')->group(function () {
     Route::post('bookings/{booking}/cancel', [BookingController::class, 'cancel'])
         ->middleware(['can:view,booking', 'throttle:30,1'])
         ->name('bookings.cancel');
+    // Moving to another time (ISSUE-17): same rules as cancelling
+    // (BookingPolicy::reschedule()); the atomic move is RescheduleBooking.
+    Route::get('bookings/{booking}/reschedule', [BookingController::class, 'reschedule'])
+        ->middleware('can:view,booking')
+        ->name('bookings.reschedule');
+    Route::post('bookings/{booking}/reschedule', [BookingController::class, 'rescheduleStore'])
+        ->middleware(['can:view,booking', 'throttle:30,1'])
+        ->name('bookings.reschedule.store');
 
     Route::get('agenda', [AgendaController::class, 'mine'])
         ->middleware('role:employee')

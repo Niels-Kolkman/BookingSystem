@@ -16,7 +16,8 @@ use Illuminate\Auth\Access\Response;
  *
  * Lists must use Booking::visibleTo(), which applies the same rules in SQL.
  *
- * Who may cancel a booking (ISSUE-16), see cancel().
+ * Who may cancel a booking (ISSUE-16), see cancel(); who may move it to
+ * another time (ISSUE-17), see reschedule().
  */
 class BookingPolicy
 {
@@ -52,14 +53,56 @@ class BookingPolicy
      */
     public function cancel(User $user, Booking $booking): Response
     {
+        return $this->changeable($user, $booking,
+            cancelled: 'Deze afspraak is al geannuleerd.',
+            finished: 'Deze afspraak kan niet meer worden geannuleerd.',
+            notCustomer: 'Alleen de klant of de beheerder kan deze afspraak annuleren.',
+            pastDeadline: self::pastDeadlineMessage(),
+        );
+    }
+
+    /**
+     * Moving a booking to another time (ISSUE-17) follows the same rules as
+     * cancel(), with the same deadline: moving gives up the old time just
+     * like cancelling does, so it must not be a way around the window.
+     * Whether the new time is free is decided by RescheduleBooking.
+     */
+    public function reschedule(User $user, Booking $booking): Response
+    {
+        return $this->changeable($user, $booking,
+            cancelled: 'Deze afspraak is geannuleerd en kan niet meer worden verplaatst.',
+            finished: 'Deze afspraak kan niet meer worden verplaatst.',
+            notCustomer: 'Alleen de klant of de beheerder kan deze afspraak verplaatsen.',
+            pastDeadline: self::pastDeadlineMessage('verplaatsen'),
+        );
+    }
+
+    /**
+     * Shown to a customer whose booking is past the cancellation deadline.
+     *
+     * @param  'annuleren'|'verplaatsen'  $action
+     */
+    public static function pastDeadlineMessage(string $action = 'annuleren'): string
+    {
+        $hours = (int) config('booking.cancellation_window_hours');
+        $until = $hours === 0 ? 'tot de afspraak begint' : "tot {$hours} uur van tevoren";
+
+        return "Online {$action} kan {$until}. Neem contact met ons op om deze afspraak te {$action}.";
+    }
+
+    /**
+     * The shared rules of cancel() and reschedule(): a requested or
+     * confirmed booking; an admin always, a customer their own booking
+     * until Booking::cancellationDeadline(), an employee never.
+     */
+    private function changeable(User $user, Booking $booking, string $cancelled, string $finished, string $notCustomer, string $pastDeadline): Response
+    {
         if (! $this->canSee($user, $booking)) {
             return Response::denyAsNotFound();
         }
 
         if (! $booking->status->blocksTime()) {
-            return Response::deny($booking->status === BookingStatus::Cancelled
-                ? 'Deze afspraak is al geannuleerd.'
-                : 'Deze afspraak kan niet meer worden geannuleerd.');
+            return Response::deny($booking->status === BookingStatus::Cancelled ? $cancelled : $finished);
         }
 
         if ($user->isAdmin()) {
@@ -67,23 +110,12 @@ class BookingPolicy
         }
 
         if (! $user->isCustomer()) {
-            return Response::deny('Alleen de klant of de beheerder kan deze afspraak annuleren.');
+            return Response::deny($notCustomer);
         }
 
         return CarbonImmutable::now()->lessThanOrEqualTo($booking->cancellationDeadline())
             ? Response::allow()
-            : Response::deny(self::pastDeadlineMessage());
-    }
-
-    /**
-     * Shown to a customer whose booking is past the cancellation deadline.
-     */
-    public static function pastDeadlineMessage(): string
-    {
-        $hours = (int) config('booking.cancellation_window_hours');
-        $until = $hours === 0 ? 'tot de afspraak begint' : "tot {$hours} uur van tevoren";
-
-        return "Online annuleren kan {$until}. Neem contact met ons op om deze afspraak te annuleren.";
+            : Response::deny($pastDeadline);
     }
 
     private function canSee(User $user, Booking $booking): bool

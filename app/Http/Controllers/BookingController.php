@@ -6,7 +6,10 @@ use App\Bookings\BookingRefused;
 use App\Bookings\CancelBooking;
 use App\Bookings\CancellationRefused;
 use App\Bookings\CreateBooking;
+use App\Bookings\RescheduleBooking;
+use App\Bookings\RescheduleRefused;
 use App\Http\Requests\AvailableSlotsRequest;
+use App\Http\Requests\RescheduleBookingRequest;
 use App\Http\Requests\StoreBookingRequest;
 use App\Models\Booking;
 use App\Models\Employee;
@@ -20,6 +23,7 @@ use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Gate;
 use Illuminate\View\View;
 
 class BookingController extends Controller
@@ -170,6 +174,69 @@ class BookingController extends Controller
 
         return redirect()->route('bookings.show', $booking)
             ->with('status', 'De afspraak op '.$start->format('d-m-Y').' om '.LocalTime::time($start).' is geannuleerd.');
+    }
+
+    /**
+     * The page to move a booking to another time (ISSUE-17): pick a date,
+     * then one of the free times with the same employee and service. Works
+     * without JavaScript: the date form comes back here with `date` in the
+     * query string. After a refused move the date comes from the old input,
+     * so the message is shown next to fresh free times.
+     *
+     * The `can:view,booking` route middleware answers 404 for someone
+     * else's booking; when this user may not move it (now), the booking
+     * page shows why.
+     */
+    public function reschedule(Request $request, Booking $booking, RescheduleBooking $rescheduleBooking): View|RedirectResponse
+    {
+        $decision = Gate::inspect('reschedule', $booking);
+        if ($decision->denied()) {
+            abort_if($decision->status() === 404, 404);
+
+            return redirect()->route('bookings.show', $booking)
+                ->with('error', $decision->message() ?? 'Deze afspraak kan niet worden verplaatst.');
+        }
+
+        $booking->load(['employee', 'service']);
+        $today = LocalTime::toLocal(CarbonImmutable::now());
+        $current = LocalTime::toLocal($booking->starts_at);
+        $date = $this->chosenDate($request) ?? ($current->isBefore($today->startOfDay()) ? $today : $current);
+
+        return view('bookings.reschedule', [
+            'booking' => $booking,
+            'date' => $date->format(AvailableSlotsRequest::DATE_FORMAT),
+            'today' => $today->format(AvailableSlotsRequest::DATE_FORMAT),
+            'slots' => $rescheduleBooking->slotsFor($booking, $date),
+        ]);
+    }
+
+    /**
+     * Move a booking (ISSUE-17). The rules and the atomic update live in
+     * RescheduleBooking. A refused new time goes back to the page with the
+     * message on `starts_at`; a booking this user may not move goes to the
+     * booking page with the reason.
+     */
+    public function rescheduleStore(RescheduleBookingRequest $request, Booking $booking, RescheduleBooking $rescheduleBooking): RedirectResponse
+    {
+        /** @var User $user */
+        $user = $request->user();
+
+        try {
+            $booking = $rescheduleBooking->handle($user, $booking, $request->startsAt());
+        } catch (RescheduleRefused $refused) {
+            abort_if($refused->notFound, 404);
+
+            return redirect()->route('bookings.show', $booking)->with('error', $refused->getMessage());
+        } catch (BookingRefused $refused) {
+            return redirect()->route('bookings.reschedule', $booking)
+                ->withInput()
+                ->withErrors([$refused->field => $refused->getMessage()]);
+        }
+
+        $start = LocalTime::toLocal($booking->starts_at);
+
+        return redirect()->route('bookings.show', $booking)
+            ->with('status', 'De afspraak is verplaatst naar '.$start->format('d-m-Y').' om '.LocalTime::time($start).'.');
     }
 
     /**
