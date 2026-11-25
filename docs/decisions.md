@@ -74,7 +74,13 @@ Short records of the choices that shape this project, and why they were made.
 
 **Why:** One source of truth for "may this user cancel now", used both to show the button and to decide. Checking it again on the locked, fresh row means a booking that was just cancelled elsewhere is not cancelled twice, and the deadline is judged at the moment of cancelling, not when the page was loaded. Employees cannot cancel, because the issue gives this right only to the customer and the admin.
 
-## 8. Tooling
+## 8. Moving a booking: update in place, inside one transaction
+
+**Decision:** Moving a booking to another time (ISSUE-17) updates the times of the same row, in one transaction that first locks the employee, the customer and the booking. The new time gets the same checks as a new booking, with the booking's own old time counted as free. Only when all checks pass are the times written. Who may move, and until when, is `BookingPolicy::reschedule()`: the same rules and deadline as cancelling. Moves stay with the same employee and service.
+
+**Why:** The issue asks that the old slot is only freed once the change succeeds. Updating in place does this by construction: until the commit the row still holds the old time, and a refusal or error rolls back. Cancel-and-rebook would need two rows and a moment where the old one is already cancelled, and it would change the booking's id and history. Using the cancellation deadline stops moving from becoming a way around it. Changing the employee or service is a different booking (other price, duration, agenda), so it stays out of scope.
+
+## 9. Tooling
 
 - **Tests:** Pest (on top of PHPUnit).
 - **Static analysis:** Larastan, level 6.

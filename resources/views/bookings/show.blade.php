@@ -40,6 +40,16 @@
         @endif
     </dl>
 
+    {{-- Moving (ISSUE-17): rules in BookingPolicy::reschedule(). --}}
+    @if ($booking->status->blocksTime())
+        @can('reschedule', $booking)
+            <a href="{{ route('bookings.reschedule', $booking) }}"
+               class="mt-4 inline-block rounded border border-gray-300 bg-white px-4 py-2 text-sm hover:bg-gray-100">
+                Afspraak verplaatsen
+            </a>
+        @endcan
+    @endif
+
     {{-- Cancelling (ISSUE-16): rules in BookingPolicy::cancel(). --}}
     @if ($booking->status->blocksTime())
         @can('cancel', $booking)

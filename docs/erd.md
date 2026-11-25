@@ -138,6 +138,15 @@ The customer's own double-booking check (`Booking::attendedByBetween()`) uses `s
 - **Slot:** the cancelled booking no longer blocks its time, so `AvailableSlots` offers the slot again and `CreateBooking` accepts it.
 - **Concurrency:** the policy is checked inside a transaction on the booking row locked with `lockForUpdate()`, so a booking cancelled twice at once is cancelled only once and keeps the first `cancelled_by`.
 
+### Moving a booking
+`App\Bookings\RescheduleBooking` moves a `requested` or `confirmed` booking to another time with the same employee and service (ISSUE-17). Customers and admins do this on `/bookings/{booking}/reschedule`: pick a date, then one of the free times (`POST /bookings/{booking}/reschedule` with `starts_at` in the same format as for a new booking).
+
+- **Atomic:** the booking row is updated in place, in one transaction, only after every check on the new time passed. Until the commit the old time stays taken; a refusal (or any error) rolls back and the booking keeps its old time. The booking never holds both times or neither, and nobody else can take the old slot while the move is being checked.
+- **Who:** `BookingPolicy::reschedule()`, the same rules and deadline as cancelling: a customer their own booking until `Booking::cancellationDeadline()`, an admin always, an employee never. Moving gives up the old time like cancelling does, so it is not a way around the window. After a move the deadline follows the new start.
+- **Checks** on the new time, as for a new booking (`BookingRefused`): the service is active and the employee can perform it; the start differs from the current one; the employee is free (buffers included); the customer is free; the start is an offered slot. The booking's own old time counts as free in all of these (`AvailableSlots::for(..., ignoring: $booking)`), so it can move by 15 minutes into a time that overlaps its old one.
+- **Kept:** status, notes and the snapshot of `duration_minutes` and `price_cents`; the buffer is the service's current one, as for every slot. `reminder_sent_at` is reset so the new time gets a reminder (ISSUE-20).
+- **Concurrency:** locks the employee, then the customer (as `CreateBooking`), then the booking row. A new booking or another move for the same employee or customer waits; a cancellation of the same booking waits for the move or the other way round, and is then judged on the fresh row.
+
 ### Which employee can perform which service
 `employee_service` links employees to the services they can perform (ISSUE-8). Admins set the links on the service form; an unchecked employee is unlinked. The form only accepts existing employees, each once, and the composite primary key rejects duplicates in the database as well.
 
@@ -225,7 +234,7 @@ Preventing double bookings (ISSUE-13) is done in the application, because MySQL 
 2. re-checks for overlap with the queries above,
 3. inserts the booking.
 
-Locking the `employees` row serialises bookings per employee without blocking other employees. Locking the customer's row as well serialises one customer's requests for different employees, so check 3 (the customer is free) cannot be raced either. The lock order is always employee, then customer, so two requests never wait on each other in a cycle (no deadlock). A request that has to wait sees the other's committed booking once it gets the lock and is refused with the normal message. The locks must be the first queries in the transaction, because InnoDB takes the REPEATABLE READ snapshot at the first plain read.
+Locking the `employees` row serialises bookings per employee without blocking other employees. Locking the customer's row as well serialises one customer's requests for different employees, so check 3 (the customer is free) cannot be raced either. The lock order is always employee, then customer, so two requests never wait on each other in a cycle (no deadlock). Moving a booking (ISSUE-17) takes the same two locks and then the booking row; cancelling locks only the booking row, so the order still never forms a cycle. A request that has to wait sees the other's committed booking once it gets the lock and is refused with the normal message. The locks must be the first queries in the transaction, because InnoDB takes the REPEATABLE READ snapshot at the first plain read.
 
 SQLite ignores `lockForUpdate()`. The test that replays the race (`tests/Concurrency/ConcurrentBookingTest.php`) therefore only runs on MySQL/MariaDB (the CI job *Tests (MySQL 8)*) and is skipped on SQLite.
 
