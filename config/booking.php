@@ -10,10 +10,20 @@
 | 09:30, ... The steps start at the beginning of every working block, so a
 | block from 13:30 offers 13:30, 13:45, ...
 |
+| `cancellation_window_hours` is how long before the start a customer can
+| still cancel a booking themselves (ISSUE-16). With 24, an appointment on
+| Tuesday 10:00 can be cancelled by the customer until Monday 10:00 (real
+| elapsed hours, so across a daylight-saving switch the clock may read
+| 09:00 or 11:00). After that only an admin can cancel it. 0 lets
+| customers cancel until the appointment starts; negative values count
+| as 0.
+|
 */
 
 return [
 
     'slot_interval' => (int) env('BOOKING_SLOT_INTERVAL', 15),
+
+    'cancellation_window_hours' => max(0, (int) env('BOOKING_CANCELLATION_WINDOW_HOURS', 24)),
 
 ];

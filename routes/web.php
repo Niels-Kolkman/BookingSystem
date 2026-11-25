@@ -60,6 +60,11 @@ Route::middleware('auth')->group(function () {
     Route::get('bookings/{booking}', [BookingController::class, 'show'])
         ->middleware('can:view,booking')
         ->name('bookings.show');
+    // Cancelling (ISSUE-16): customer until the cancellation deadline,
+    // admin always; the rules live in BookingPolicy::cancel().
+    Route::post('bookings/{booking}/cancel', [BookingController::class, 'cancel'])
+        ->middleware(['can:view,booking', 'throttle:30,1'])
+        ->name('bookings.cancel');
 
     Route::get('agenda', [AgendaController::class, 'mine'])
         ->middleware('role:employee')

@@ -34,6 +34,9 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
  * @property int $price_cents
  * @property BookingStatus $status
  * @property string|null $notes
+ * @property CarbonImmutable|null $cancelled_at
+ * @property int|null $cancelled_by
+ * @property string|null $cancellation_reason
  */
 class Booking extends Model
 {
@@ -81,6 +84,27 @@ class Booking extends Model
     public function service(): BelongsTo
     {
         return $this->belongsTo(Service::class);
+    }
+
+    /**
+     * Who cancelled the booking (ISSUE-16): the customer or an admin.
+     *
+     * @return BelongsTo<User, $this>
+     */
+    public function cancelledBy(): BelongsTo
+    {
+        return $this->belongsTo(User::class, 'cancelled_by');
+    }
+
+    /**
+     * The last moment the customer can cancel the booking themselves
+     * (ISSUE-16): `booking.cancellation_window_hours` real hours before the
+     * start. Cancelling exactly at this moment is still allowed. After it
+     * only an admin can cancel; see BookingPolicy::cancel().
+     */
+    public function cancellationDeadline(): CarbonImmutable
+    {
+        return $this->starts_at->subHours((int) config('booking.cancellation_window_hours'));
     }
 
     /**
