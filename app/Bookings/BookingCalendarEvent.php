@@ -25,7 +25,12 @@ use DateTimeInterface;
  */
 final class BookingCalendarEvent
 {
-    public const MIME_TYPE = 'text/calendar; charset=utf-8';
+    /**
+     * Without parameters: the mailer would put them in the subtype. No
+     * charset is needed, UTF-8 is the default for text/calendar (RFC 5545
+     * 3.1.4).
+     */
+    public const MIME_TYPE = 'text/calendar';
 
     public const FILENAME = 'afspraak.ics';
 
