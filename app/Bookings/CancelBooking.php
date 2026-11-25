@@ -43,7 +43,7 @@ final readonly class CancelBooking
                 );
             }
 
-            $locked->status = BookingStatus::Cancelled;
+            $locked->transitionTo(BookingStatus::Cancelled);
             $locked->cancelled_at = CarbonImmutable::now();
             $locked->cancelled_by = $by->id;
             $locked->cancellation_reason = filled($reason) ? trim($reason) : null;

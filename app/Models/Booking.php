@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Bookings\InvalidStatusTransition;
 use App\Enums\BookingStatus;
 use App\Enums\UserRole;
 use App\Models\Concerns\StoresDatesInUtc;
@@ -44,6 +45,45 @@ class Booking extends Model
     use HasFactory;
 
     use StoresDatesInUtc;
+
+    /**
+     * Only valid status transitions are saved (ISSUE-18): changing the
+     * status of a stored booking to one that may not follow its stored
+     * status (BookingStatus::allowedTransitions()) throws and saves nothing,
+     * however the status was set. A new booking may start in any status.
+     *
+     * The check compares with the status this model was loaded with, so
+     * actions that must not act on a stale copy lock and reload the row
+     * first, as CancelBooking does. Mass updates through the query builder
+     * (Booking::query()->update()) skip model events and are not checked.
+     */
+    protected static function booted(): void
+    {
+        static::updating(function (Booking $booking): void {
+            if (! $booking->isDirty('status')) {
+                return;
+            }
+
+            $from = BookingStatus::from($booking->getRawOriginal('status'));
+            if (! $from->canTransitionTo($booking->status)) {
+                throw InvalidStatusTransition::between($from, $booking->status);
+            }
+        });
+    }
+
+    /**
+     * Change the status, without saving, if the transition is allowed.
+     *
+     * @throws InvalidStatusTransition
+     */
+    public function transitionTo(BookingStatus $to): void
+    {
+        if (! $this->status->canTransitionTo($to)) {
+            throw InvalidStatusTransition::between($this->status, $to);
+        }
+
+        $this->status = $to;
+    }
 
     /**
      * @return array<string, string>
