@@ -68,7 +68,13 @@ Short records of the choices that shape this project, and why they were made.
 
 **Why:** The slot rules already live on the server (ISSUE-11 to 14); rendering the same data on the server keeps one source of truth and keeps the page usable when the script fails to load. A few small fetches did not justify a frontend framework.
 
-## 7. Tooling
+## 7. Cancelling: one policy, checked on the locked booking
+
+**Decision:** Customers cancel their own booking until a configurable number of hours before the start (`booking.cancellation_window_hours`, default 24). After that only an admin can (ISSUE-16). The rule lives in `BookingPolicy::cancel()`. The page uses `@can('cancel', ...)` to show the form, and `CancelBooking` checks the same policy again on the booking row locked with `lockForUpdate()`.
+
+**Why:** One source of truth for "may this user cancel now", used both to show the button and to decide. Checking it again on the locked, fresh row means a booking that was just cancelled elsewhere is not cancelled twice, and the deadline is judged at the moment of cancelling, not when the page was loaded. Employees cannot cancel, because the issue gives this right only to the customer and the admin.
+
+## 8. Tooling
 
 - **Tests:** Pest (on top of PHPUnit).
 - **Static analysis:** Larastan, level 6.

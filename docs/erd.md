@@ -130,6 +130,14 @@ The customer's own double-booking check (`Booking::attendedByBetween()`) uses `s
 ### Which bookings block a slot
 `requested` and `confirmed` block their time range. `cancelled` frees it. `completed` and `no_show` are in the past and never block new bookings. Allowed status transitions are defined in ISSUE-18.
 
+### Cancelling
+`App\Bookings\CancelBooking` sets a `requested` or `confirmed` booking to `cancelled` (ISSUE-16) and fills `cancelled_at`, `cancelled_by` and the optional `cancellation_reason` (max 255 characters). Customers and admins cancel on the booking page (`POST /bookings/{booking}/cancel`).
+
+- **Who:** `BookingPolicy::cancel()`. A customer may cancel their own booking until `Booking::cancellationDeadline()`, which is `starts_at` minus `booking.cancellation_window_hours` (env `BOOKING_CANCELLATION_WINDOW_HOURS`, default 24). Cancelling exactly at the deadline is still allowed. After the deadline only an admin can cancel. Employees cannot cancel; they ask an admin. Someone else's booking answers 404, as for viewing it.
+- **Hours** are real elapsed hours, so on a daylight-saving weekend the deadline for an appointment at 12:00 can be 11:00 or 13:00 the day before on the clock.
+- **Slot:** the cancelled booking no longer blocks its time, so `AvailableSlots` offers the slot again and `CreateBooking` accepts it.
+- **Concurrency:** the policy is checked inside a transaction on the booking row locked with `lockForUpdate()`, so a booking cancelled twice at once is cancelled only once and keeps the first `cancelled_by`.
+
 ### Which employee can perform which service
 `employee_service` links employees to the services they can perform (ISSUE-8). Admins set the links on the service form; an unchecked employee is unlinked. The form only accepts existing employees, each once, and the composite primary key rejects duplicates in the database as well.
 
@@ -223,5 +231,5 @@ SQLite ignores `lockForUpdate()`. The test that replays the race (`tests/Concurr
 
 ## Open points
 
-- **Cancellation window** (ISSUE-16) is a single global value, so it lives in config for now. If it must differ per service it becomes a column on `services`.
+- **Cancellation window** (ISSUE-16) is a single global value, `booking.cancellation_window_hours` in config. If it must differ per service it becomes a column on `services`.
 - **Status history** (who changed what, when) is not modelled. If it turns out to be needed for ISSUE-18, add a `booking_status_changes` table.
