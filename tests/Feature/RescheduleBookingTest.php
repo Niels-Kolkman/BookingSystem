@@ -329,7 +329,10 @@ describe('who may move', function () {
     it('cannot move a cancelled, completed or no-show booking', function (BookingStatus $status, string $message) {
         [$employee, $service] = rsAgenda();
         $booking = rsBook($employee, $service);
-        $booking->status = $status;
+        // Only a confirmed booking can be completed or a no-show (ISSUE-18).
+        $booking->transitionTo(BookingStatus::Confirmed);
+        $booking->save();
+        $booking->transitionTo($status);
         $booking->save();
 
         expect(rsMove(User::factory()->admin()->create(), $booking, '2026-11-24 11:00')?->getMessage())->toBe($message)

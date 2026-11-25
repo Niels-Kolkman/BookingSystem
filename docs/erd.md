@@ -128,7 +128,23 @@ The customer's own double-booking check (`Booking::attendedByBetween()`) uses `s
 `duration_minutes` and `price_cents` are copied from the service at booking time. Changing a service later must not rewrite history or move existing appointments.
 
 ### Which bookings block a slot
-`requested` and `confirmed` block their time range. `cancelled` frees it. `completed` and `no_show` are in the past and never block new bookings. Allowed status transitions are defined in ISSUE-18.
+`requested` and `confirmed` block their time range. `cancelled` frees it. `completed` and `no_show` are in the past and never block new bookings.
+
+### Status transitions
+A booking's status follows a small state machine (ISSUE-18), defined in `BookingStatus::allowedTransitions()`:
+
+| From | To |
+|---|---|
+| `requested` (aangevraagd) | `confirmed`, `cancelled` |
+| `confirmed` (bevestigd) | `cancelled`, `completed`, `no_show` |
+| `cancelled` (geannuleerd) | — (final) |
+| `completed` (voltooid) | — (final) |
+| `no_show` (niet verschenen) | — (final) |
+
+- Only a confirmed booking can be `completed` or `no_show`; a request that was never confirmed is cancelled instead. Nothing returns to `requested`, and a final status is never left (a cancelled booking is not revived; book again).
+- **Enforced on every save:** `Booking` refuses, in an `updating` hook, a status change that is not allowed from the stored status, however the status was set, and throws `App\Bookings\InvalidStatusTransition`; nothing of that update is saved. A new booking may be created in any status (factories, imports). Query-builder mass updates (`Booking::query()->update()`) skip model events and are not checked, so do not change statuses that way.
+- **`Booking::transitionTo($status)`** checks and sets the status without saving; actions use it (`CancelBooking`). Who may make a transition is still decided per action by `BookingPolicy`, which refuses first with a message for the user; `InvalidStatusTransition` means a bug.
+- `BookingStatus::label()` gives the Dutch name.
 
 ### Cancelling
 `App\Bookings\CancelBooking` sets a `requested` or `confirmed` booking to `cancelled` (ISSUE-16) and fills `cancelled_at`, `cancelled_by` and the optional `cancellation_reason` (max 255 characters). Customers and admins cancel on the booking page (`POST /bookings/{booking}/cancel`).
@@ -205,7 +221,7 @@ A customer books a free slot with `POST /bookings` (`bookings.store`, ISSUE-12).
   4. **the start is an offered slot:** it is one of `AvailableSlots::for()` on that local date, so working time, exceptions, the interval grid, the fit in the working block and "not in the past" all apply (on `starts_at`).
 
   Checks 2 and 3 come before 4 so the customer gets the specific reason. Touching is allowed in both overlap checks.
-- **Stored:** times from the matching `Slot` (UTC), a snapshot of `duration_minutes` and `price_cents`, status `requested`. Confirming is ISSUE-18.
+- **Stored:** times from the matching `Slot` (UTC), a snapshot of `duration_minutes` and `price_cents`, status `requested`. Which status may follow is in *Status transitions*; there is no confirm action in the UI yet.
 - **Result:** a redirect to the booking with a confirmation. A refusal redirects back with the input and the message on the field.
 - The checks and the insert run in one transaction that first locks the employee and the customer row, so simultaneous requests cannot both pass the checks (ISSUE-13, see *Concurrency*).
 
@@ -241,4 +257,5 @@ SQLite ignores `lockForUpdate()`. The test that replays the race (`tests/Concurr
 ## Open points
 
 - **Cancellation window** (ISSUE-16) is a single global value, `booking.cancellation_window_hours` in config. If it must differ per service it becomes a column on `services`.
-- **Status history** (who changed what, when) is not modelled. If it turns out to be needed for ISSUE-18, add a `booking_status_changes` table.
+- **Status history** (who changed what, when) is not modelled; ISSUE-18 did not need it. Cancelling records `cancelled_at`/`cancelled_by`. If a full history is needed, add a `booking_status_changes` table written from the `updating` hook on `Booking`.
+- **Completed / no-show by time:** the state machine does not check the clock, so a confirmed booking could be marked `completed` before it starts. The action that sets these (admin agenda, or a scheduled job) should check `starts_at` itself.
