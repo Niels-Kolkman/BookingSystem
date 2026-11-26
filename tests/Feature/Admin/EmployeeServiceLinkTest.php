@@ -374,7 +374,8 @@ describe('edge cases', function () {
     it('leaves the employee\'s links to other services alone when updating one service', function () {
         $employee = Employee::factory()->create();
         $edited = Service::factory()->create();
-        $untouched = Service::factory()->create();
+        // Not 'Knippen', the name the form posts: names are unique.
+        $untouched = Service::factory()->create(['name' => 'Kleuren']);
         $employee->services()->attach([$edited->id, $untouched->id]);
 
         actingAs(linkAdmin())
