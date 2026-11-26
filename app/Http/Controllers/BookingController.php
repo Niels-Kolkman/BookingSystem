@@ -263,13 +263,6 @@ class BookingController extends Controller
             $value = is_string($old) ? substr($old, 0, 10) : null;
         }
 
-        // Carbon throws on anything that is not shaped like a date.
-        if ($value === null || preg_match('/^\d{4}-\d{2}-\d{2}$/', $value) !== 1) {
-            return null;
-        }
-
-        $date = CarbonImmutable::createFromFormat('!'.AvailableSlotsRequest::DATE_FORMAT, $value, LocalTime::TIMEZONE);
-
-        return $date instanceof CarbonImmutable && $date->format(AvailableSlotsRequest::DATE_FORMAT) === $value ? $date : null;
+        return LocalTime::parseDate($value);
     }
 }

@@ -3,6 +3,7 @@
 use App\Models\Booking;
 use App\Models\Employee;
 use App\Models\User;
+use Carbon\CarbonImmutable;
 use Illuminate\Support\Facades\Gate;
 
 use function Pest\Laravel\actingAs;
@@ -34,17 +35,40 @@ final class AccessScenario
         $xavier = Employee::factory()->create();
         $yara = Employee::factory()->create();
 
+        // All on one day, so one agenda week shows them all (ISSUE-21).
+        $at = fn (int $hour): array => [
+            'starts_at' => agendaDay()->setTime($hour, 0),
+            'ends_at' => agendaDay()->setTime($hour, 30),
+            'blocked_until' => agendaDay()->setTime($hour, 30),
+        ];
+
         return new self(
             anna: $anna,
             bram: $bram,
             xavier: $xavier,
             yara: $yara,
             admin: User::factory()->admin()->create(),
-            own: Booking::factory()->for($anna, 'customer')->for($xavier)->create(),
-            other: Booking::factory()->for($bram, 'customer')->for($yara)->create(),
-            annaYara: Booking::factory()->for($anna, 'customer')->for($yara)->create(),
+            own: Booking::factory()->for($anna, 'customer')->for($xavier)->create($at(9)),
+            other: Booking::factory()->for($bram, 'customer')->for($yara)->create($at(10)),
+            annaYara: Booking::factory()->for($anna, 'customer')->for($yara)->create($at(11)),
         );
     }
+}
+
+/**
+ * The day of the scenario's bookings, as UTC midnight three days from now.
+ */
+function agendaDay(): CarbonImmutable
+{
+    return CarbonImmutable::now('UTC')->addDays(3)->startOfDay();
+}
+
+/**
+ * The agenda week that holds the scenario's bookings.
+ */
+function agendaUrl(Employee $employee): string
+{
+    return route('employees.agenda', [$employee, 'date' => agendaDay()->format('Y-m-d')]);
 }
 
 /**
@@ -207,7 +231,7 @@ describe('agenda', function () {
         $s = AccessScenario::create();
 
         actingAs($s->xavier->user)
-            ->get(route('employees.agenda', $s->xavier))
+            ->get(agendaUrl($s->xavier))
             ->assertOk()
             ->assertSee(bookingLink($s->own), false)
             ->assertDontSee(bookingLink($s->other), false);
@@ -238,7 +262,7 @@ describe('agenda', function () {
         $s = AccessScenario::create();
 
         actingAs($s->admin)
-            ->get(route('employees.agenda', $s->yara))
+            ->get(agendaUrl($s->yara))
             ->assertOk()
             ->assertSee(bookingLink($s->other), false)
             ->assertSee(bookingLink($s->annaYara), false)

@@ -77,6 +77,23 @@ final class LocalTime
     }
 
     /**
+     * A local date (midnight, Europe/Amsterdam) from a "Y-m-d" string, e.g.
+     * from a query string. Null when it is not a string, not shaped like a
+     * date or not a real date (2026-02-30).
+     */
+    public static function parseDate(mixed $value): ?CarbonImmutable
+    {
+        // Carbon throws on anything that is not shaped like a date.
+        if (! is_string($value) || preg_match('/^\d{4}-\d{2}-\d{2}$/', $value) !== 1) {
+            return null;
+        }
+
+        $date = CarbonImmutable::createFromFormat('!Y-m-d', $value, self::TIMEZONE);
+
+        return $date instanceof CarbonImmutable && $date->format('Y-m-d') === $value ? $date : null;
+    }
+
+    /**
      * A moment in Europe/Amsterdam.
      */
     public static function toLocal(DateTimeInterface $moment): CarbonImmutable

@@ -5,6 +5,7 @@ use App\Enums\UserRole;
 use App\Models\Booking;
 use App\Models\Employee;
 use App\Models\User;
+use Carbon\CarbonImmutable;
 use Illuminate\Support\Facades\Gate;
 
 use function Pest\Laravel\actingAs;
@@ -145,14 +146,32 @@ describe('paginated lists', function () {
         expect($shown)->toBe($own->pluck('id')->sort()->values()->all());
     });
 
-    it('count only that employee\'s bookings in an agenda', function () {
+    it('show only that employee\'s bookings in an agenda week', function () {
         $xavier = Employee::factory()->create();
-        Booking::factory()->count(26)->for($xavier)->create();
-        Booking::factory()->count(2)->create();
+        // Monday 2026-11-30 09:00 UTC, one booking a day for the whole week.
+        $monday = CarbonImmutable::parse('2026-11-30 09:00', 'UTC');
+        $own = collect(range(0, 6))->map(fn (int $i): Booking => Booking::factory()->for($xavier)->create([
+            'starts_at' => $monday->addDays($i),
+            'ends_at' => $monday->addDays($i)->addMinutes(30),
+            'blocked_until' => $monday->addDays($i)->addMinutes(30),
+        ]));
+        $others = Booking::factory()->count(2)->create([
+            'starts_at' => $monday,
+            'ends_at' => $monday->addMinutes(30),
+            'blocked_until' => $monday->addMinutes(30),
+        ]);
 
-        $response = actingAs($xavier->user)->get(route('employees.agenda', $xavier))->assertOk();
+        $response = actingAs($xavier->user)
+            ->get(route('employees.agenda', [$xavier, 'date' => '2026-12-03']))
+            ->assertOk();
 
-        expect($response->viewData('bookings')->total())->toBe(26);
+        expect(substr_count((string) $response->getContent(), 'data-agenda-item="booking"'))->toBe(7);
+        foreach ($own as $booking) {
+            $response->assertSee(edgeBookingLink($booking), false);
+        }
+        foreach ($others as $other) {
+            $response->assertDontSee(edgeBookingLink($other), false);
+        }
     });
 });
 
