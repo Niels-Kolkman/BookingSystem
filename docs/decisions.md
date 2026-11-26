@@ -110,7 +110,22 @@ So a reminder goes out between 24 and 23 hours before the start. A missed run is
 
 **Trade-off:** marking before sending means a reminder whose job finally fails is lost rather than sent twice. The issue's "no double mails" is the stronger requirement, and the failure is visible in `failed_jobs`.
 
-## 11. Tooling
+## 11. Agenda: a server-rendered grid in wall-clock time
+
+**Decision:** The agenda of an employee (ISSUE-21) is `GET /employees/{employee}/agenda?view=week|day&date=Y-m-d`, rendered on the server as a CSS grid with absolutely positioned blocks. There is no calendar library or JavaScript.
+- **Week** (the default) runs Monday to Sunday around the date. **Day** shows one date. Missing or unreadable input (an unknown view, a date that does not exist, a date outside 2000-2099) falls back to this week, as on the booking page.
+- **Contents** per day: working hours, breaks, time off (part of the day as a block, a whole day in the day header), the public holiday, and every booking that is not cancelled. A booking links to its page and shows time, service, customer and, unless it is confirmed, its status.
+- **Breaks** are the gaps between the planned working blocks (weekly schedule plus extra hours), without the time that is off anyway (`DaySchedule::breaks()`). A split shift 09:00-12:30 / 13:30-17:00 has the break 12:30-13:30.
+- **Access** is unchanged (decision 4): `EmployeePolicy::viewAgenda` lets an employee see only their own agenda and an admin every agenda; other agendas answer 404. `/agenda` sends an employee to theirs and keeps `view` and `date`. Admins open agendas from *Beheer → Medewerkers*.
+- **Layout in wall-clock time:** blocks are placed by the local clock time, the same as the schedule, so the rows of a week line up. On the night the clock goes back, a booking whose wall-clock end lies before its start (02:30 summer time to 02:00 winter time) is drawn with its real length. Both 02:30s then sit in the same spot, in real order, and their labels say "(zomertijd)" / "(wintertijd)". A booking across midnight is drawn on both days, clipped to each.
+- **Visible hours** run from the whole hour before the earliest item in the period to the whole hour after the latest, 08:00-18:00 when there is nothing to show.
+- **Queries:** `App\Scheduling\Agenda` reads working hours, the exceptions in the period and the bookings in the period with one query each, so a week costs the same as a day.
+
+**Why:** The data and rules (schedule, exceptions, holidays, time zones) already live on the server (decisions 3 and 6). A grid of a week with a few dozen blocks does not need a client-side calendar. Wall-clock placement matches how the salon thinks about its day, and the labels keep the one ambiguous hour a year honest.
+
+**Not in scope:** the buffer after a booking is not drawn, and there are no actions (confirm, complete) in the agenda.
+
+## 12. Tooling
 
 - **Tests:** Pest (on top of PHPUnit).
 - **Static analysis:** Larastan, level 6.
