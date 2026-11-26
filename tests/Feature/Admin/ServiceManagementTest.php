@@ -8,7 +8,10 @@ use App\Models\Service;
 use App\Models\User;
 
 use function Pest\Laravel\actingAs;
+use function Pest\Laravel\delete;
 use function Pest\Laravel\get;
+use function Pest\Laravel\post;
+use function Pest\Laravel\put;
 
 /**
  * @param  array<string, mixed>  $overrides
@@ -344,9 +347,9 @@ describe('access edge cases', function () {
     it('does not let guests create, update or delete services', function () {
         $service = Service::factory()->create(['name' => 'Knippen', 'price_cents' => 2500]);
 
-        $this->post(route('admin.services.store'), serviceInput(['name' => 'Nieuw']))->assertRedirect(route('login'));
-        $this->put(route('admin.services.update', $service), serviceInput(['price' => '1']))->assertRedirect(route('login'));
-        $this->delete(route('admin.services.destroy', $service))->assertRedirect(route('login'));
+        post(route('admin.services.store'), serviceInput(['name' => 'Nieuw']))->assertRedirect(route('login'));
+        put(route('admin.services.update', $service), serviceInput(['price' => '1']))->assertRedirect(route('login'));
+        delete(route('admin.services.destroy', $service))->assertRedirect(route('login'));
 
         expect(Service::count())->toBe(1)
             ->and($service->fresh()->price_cents)->toBe(2500);
@@ -369,11 +372,15 @@ describe('access edge cases', function () {
         actingAs($user)->put(route('admin.services.update', $service), serviceInput(['name' => 'Gehackt', 'price' => '1']));
         actingAs($user)->post(route('admin.services.store'), serviceInput(['name' => 'Nieuw']));
 
-        expect($service->fresh())
-            ->name->toBe('Knippen')
-            ->price_cents->toBe(2500)
+        $fresh = $service->fresh();
+
+        expect($fresh?->name)->toBe('Knippen')
+            ->and($fresh?->price_cents)->toBe(2500)
             ->and(Service::count())->toBe(1);
-    })->with([UserRole::Customer, UserRole::Employee]);
+    })->with([
+        'customer' => [UserRole::Customer],
+        'employee' => [UserRole::Employee],
+    ]);
 
     it('returns 404 when updating or deleting an unknown service', function () {
         actingAs(admin())->put(route('admin.services.update', 999), serviceInput())->assertNotFound();

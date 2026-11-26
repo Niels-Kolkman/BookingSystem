@@ -45,6 +45,9 @@ function tzNightEmployee(): array
     return [$employee, $service];
 }
 
+/**
+ * @param  array<string, mixed>  $attributes
+ */
 function tzBookingAt(CarbonImmutable $start, array $attributes = []): Booking
 {
     return Booking::factory()->create([

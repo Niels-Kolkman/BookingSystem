@@ -27,6 +27,8 @@ beforeEach(function () {
 });
 
 /**
+ * @param  array<string, mixed>  $employee
+ * @param  array<string, mixed>  $service
  * @return array{Employee, Service}
  */
 function bfeSetup(array $employee = [], array $service = []): array
@@ -49,6 +51,7 @@ function bfeQuery(Service $service, Employee $employee, string $date = '2026-12-
 }
 
 /**
+ * @param  array<string, string>  $query
  * @return list<string>
  */
 function bfeStarts(User $customer, array $query): array

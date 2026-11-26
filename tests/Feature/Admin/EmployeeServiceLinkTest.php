@@ -9,6 +9,7 @@ use Illuminate\Database\QueryException;
 use Illuminate\Support\Facades\DB;
 
 use function Pest\Laravel\actingAs;
+use function Pest\Laravel\put;
 
 /*
  * ISSUE-8: not every employee can perform every service. Employees are
@@ -373,8 +374,10 @@ describe('edge cases', function () {
 
     it('leaves the employee\'s links to other services alone when updating one service', function () {
         $employee = Employee::factory()->create();
-        $edited = Service::factory()->create();
-        $untouched = Service::factory()->create();
+        // Fixed, different names: service names are unique, and the factory's
+        // random pick could give both services the name the update sends.
+        $edited = Service::factory()->create(['name' => 'Föhnen']);
+        $untouched = Service::factory()->create(['name' => 'Kleuren']);
         $employee->services()->attach([$edited->id, $untouched->id]);
 
         actingAs(linkAdmin())
@@ -445,7 +448,7 @@ describe('edge cases', function () {
         $service = Service::factory()->create();
         $employee = Employee::factory()->create();
 
-        $this->put(route('admin.services.update', $service), linkedServiceInput(['employee_ids' => [$employee->id]]))
+        put(route('admin.services.update', $service), linkedServiceInput(['employee_ids' => [$employee->id]]))
             ->assertRedirect(route('login'));
 
         expect($service->employees()->count())->toBe(0);

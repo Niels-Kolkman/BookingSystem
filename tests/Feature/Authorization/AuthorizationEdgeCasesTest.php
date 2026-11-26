@@ -14,6 +14,8 @@ use function Pest\Laravel\get;
 /**
  * Edge cases for ISSUE-6 that BookingAccessTest does not cover. Self-contained
  * on purpose, so this file also runs on its own.
+ *
+ * @return array<int, mixed>
  */
 function edgeVisibleIds(User $user): array
 {
@@ -139,9 +141,11 @@ describe('paginated lists', function () {
             $page2->assertDontSee(edgeBookingLink($other), false);
         }
 
-        $shown = collect([$page1, $page2])
-            ->flatMap(fn ($response) => $response->viewData('bookings')->pluck('id'))
-            ->sort()->values()->all();
+        $shown = [
+            ...$page1->viewData('bookings')->pluck('id')->all(),
+            ...$page2->viewData('bookings')->pluck('id')->all(),
+        ];
+        sort($shown);
 
         expect($shown)->toBe($own->pluck('id')->sort()->values()->all());
     });

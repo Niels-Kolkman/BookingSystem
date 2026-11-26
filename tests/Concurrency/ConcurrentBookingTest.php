@@ -258,8 +258,13 @@ describe('simultaneous booking requests', function () {
         // Alice asks for 08:00, before the working hours: refused after the locks.
         $outcomeForBob = whileFirstRequestHoldsLocks(fn () => secondRequest($bob, $service, $employee, '09:15'));
 
-        expect(fn () => firstRequest($alice, $service, $employee, '08:00'))
-            ->toThrow(fn (BookingRefused $refused) => expect($refused->reason)->toBe(BookingRefused::REASON_NOT_OFFERED));
+        $refusal = null;
+        try {
+            firstRequest($alice, $service, $employee, '08:00');
+        } catch (BookingRefused $refused) {
+            $refusal = $refused;
+        }
+        expect($refusal?->reason)->toBe(BookingRefused::REASON_NOT_OFFERED);
         expect($outcomeForBob())->toBe(RACE_WAITED)
             ->and(Booking::count())->toBe(0);
 

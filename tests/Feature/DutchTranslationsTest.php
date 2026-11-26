@@ -47,10 +47,11 @@ it('renders the whole reset mail in Dutch', function () {
         ->toContain('Deze link is '.config('auth.passwords.users.expire').' minuten geldig.')
         ->toContain('Heb je dit niet zelf aangevraagd?')
         ->toContain('Met vriendelijke groet,')
-        ->toContain('Alle rechten voorbehouden.')
-        ->not->toContain('Regards')
-        ->not->toContain('password reset request')
-        ->not->toContain('All rights reserved');
+        ->toContain('Alle rechten voorbehouden.');
+
+    foreach (['Regards', 'password reset request', 'All rights reserved'] as $english) {
+        expect($html)->not->toContain($english);
+    }
 });
 
 it('falls back to English for a rule without a Dutch message', function () {

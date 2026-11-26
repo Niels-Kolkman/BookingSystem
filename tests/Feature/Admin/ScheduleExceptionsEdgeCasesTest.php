@@ -12,6 +12,7 @@ use Carbon\CarbonImmutable;
 use Illuminate\Database\QueryException;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Testing\TestResponse;
+use Symfony\Component\HttpFoundation\Response;
 
 use function Pest\Laravel\actingAs;
 use function Pest\Laravel\travelTo;
@@ -46,6 +47,7 @@ function workedOn(Employee $employee, string $date): string
 
 /**
  * @param  array<string, mixed>  $overrides
+ * @return TestResponse<Response>
  */
 function postException(Employee $employee, array $overrides): TestResponse
 {

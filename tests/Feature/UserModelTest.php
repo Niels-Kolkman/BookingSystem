@@ -45,7 +45,7 @@ it('stores and casts every role', function (UserRole $role) {
 
     expect($user->fresh()->role)->toBe($role)
         ->and($user->fresh()->isCustomer())->toBe($role === UserRole::Customer);
-})->with(UserRole::cases());
+})->with(fn () => UserRole::cases());
 
 it('has the roles from the ERD', function () {
     expect(array_map(fn (UserRole $role) => $role->value, UserRole::cases()))

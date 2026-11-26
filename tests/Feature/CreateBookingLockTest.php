@@ -36,6 +36,20 @@ beforeEach(function () {
 });
 
 /**
+ * The reason the booking is refused with, or null when it is not refused.
+ */
+function lockRefusalReason(Closure $attempt): ?string
+{
+    try {
+        $attempt();
+    } catch (BookingRefused $refused) {
+        return $refused->reason;
+    }
+
+    return null;
+}
+
+/**
  * @return array{Employee, Service, User}
  */
 function lockScenario(): array
@@ -109,8 +123,8 @@ describe('row locks taken by CreateBooking', function () {
         app(CreateBooking::class)->handle(User::factory()->customer()->create(), $service, $employee, lockStart('09:15'));
         $level = DB::transactionLevel();
 
-        expect(fn () => app(CreateBooking::class)->handle($customer, $service, $employee, lockStart($time)))
-            ->toThrow(fn (BookingRefused $refused) => expect($refused->reason)->toBe($reason));
+        expect(lockRefusalReason(fn () => app(CreateBooking::class)->handle($customer, $service, $employee, lockStart($time))))
+            ->toBe($reason);
 
         expect(DB::transactionLevel())->toBe($level);
     })->with([
@@ -124,8 +138,8 @@ describe('row locks taken by CreateBooking', function () {
         $level = DB::transactionLevel();
 
         $queries = queriesInsideBookingTransaction(function () use ($customer, $other, $employee) {
-            expect(fn () => app(CreateBooking::class)->handle($customer, $other, $employee, lockStart('09:15')))
-                ->toThrow(fn (BookingRefused $refused) => expect($refused->reason)->toBe(BookingRefused::REASON_NOT_BOOKABLE));
+            expect(lockRefusalReason(fn () => app(CreateBooking::class)->handle($customer, $other, $employee, lockStart('09:15'))))
+                ->toBe(BookingRefused::REASON_NOT_BOOKABLE);
         });
 
         expect($queries)->toBe([])
