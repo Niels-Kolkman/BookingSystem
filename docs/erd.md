@@ -228,6 +228,14 @@ A customer books a free slot with `POST /bookings` (`bookings.store`, ISSUE-12).
 - **Result:** a redirect to the booking with a confirmation. A refusal redirects back with the input and the message on the field.
 - The checks and the insert run in one transaction that first locks the employee and the customer row, so simultaneous requests cannot both pass the checks (ISSUE-13, see *Concurrency*).
 
+### Agenda
+`App\Scheduling\Agenda::for($employee, $localDate, $days)` returns one `AgendaDay` per local date (ISSUE-21, decision 11). The page is `GET /employees/{employee}/agenda` (`employees.agenda`, `?view=week|day&date=Y-m-d`).
+
+- **Working time and holiday:** `AgendaDay::$schedule` is `Employee::scheduleOn()` for that date, so the precedence above applies.
+- **Breaks:** `DaySchedule::$breaks`, the gaps between the planned blocks (weekly plus extra hours) without time off (`DaySchedule::breaks()`). Time before the first and after the last block is not a break.
+- **Time off:** the `unavailable` exceptions of the date. `wholeDayOff()` is shown in the day header, `partialTimeOff()` as blocks.
+- **Bookings:** every status except `cancelled` whose `starts_at`-`ends_at` overlaps the local day, in real time order. Each is an `AgendaBooking` with its place in wall-clock minutes, clipped to the day. The buffer (`blocked_until`) is not drawn.
+
 ### Deleting data
 Employees and services are **deactivated** (`is_active = false`), not deleted, because bookings reference them. Foreign keys from `bookings` use `RESTRICT` on delete. Deleting a user is out of scope for now. `employee_service`, `working_hours` and `schedule_exceptions` cascade when their employee is deleted; `employee_service` also cascades when a service (without bookings) is deleted.
 

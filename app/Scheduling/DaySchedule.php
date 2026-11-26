@@ -31,11 +31,13 @@ final readonly class DaySchedule
      * @param  CarbonImmutable  $date  local date (midnight, Europe/Amsterdam)
      * @param  list<TimeRange>  $ranges  working time, sorted, non-overlapping
      * @param  Holiday|null  $holiday  the public holiday on this date, closed or not
+     * @param  list<TimeRange>  $breaks  breaks between the working blocks, see breaks()
      */
     public function __construct(
         public CarbonImmutable $date,
         public array $ranges,
         public ?Holiday $holiday,
+        public array $breaks = [],
     ) {}
 
     /**
@@ -60,17 +62,17 @@ final readonly class DaySchedule
             ->values()
             ->all();
 
-        $ranges = self::resolve(
-            weekly: $employee->workingHoursOn(Weekday::fromDate($day))
+        $parts = [
+            'weekly' => $employee->workingHoursOn(Weekday::fromDate($day))
                 ->map(fn (WorkingHour $block): TimeRange => TimeRange::fromTimes($block->starts_at, $block->ends_at))
                 ->values()
                 ->all(),
-            closed: $holiday?->isClosed() ?? false,
-            extra: $rangesOf(ScheduleExceptionType::ExtraHours),
-            unavailable: $rangesOf(ScheduleExceptionType::Unavailable),
-        );
+            'closed' => $holiday?->isClosed() ?? false,
+            'extra' => $rangesOf(ScheduleExceptionType::ExtraHours),
+            'unavailable' => $rangesOf(ScheduleExceptionType::Unavailable),
+        ];
 
-        return new self($day, $ranges, $holiday);
+        return new self($day, self::resolve(...$parts), $holiday, self::breaks(...$parts));
     }
 
     /**
@@ -90,6 +92,30 @@ final readonly class DaySchedule
         }
 
         return $ranges;
+    }
+
+    /**
+     * The breaks of a day (ISSUE-21): the gaps between the planned working
+     * blocks (weekly schedule and extra hours, so a split shift has one),
+     * without the parts that are time off anyway. Time before the first and
+     * after the last block is not a break.
+     *
+     * @param  list<TimeRange>  $weekly
+     * @param  list<TimeRange>  $extra
+     * @param  list<TimeRange>  $unavailable
+     * @return list<TimeRange> sorted, non-overlapping
+     */
+    public static function breaks(array $weekly, bool $closed, array $extra, array $unavailable): array
+    {
+        $planned = self::resolve($weekly, $closed, $extra, []);
+
+        $gaps = [];
+        for ($i = 1; $i < count($planned); $i++) {
+            // Merged ranges never touch, so every gap has a length.
+            $gaps[] = new TimeRange($planned[$i - 1]->end, $planned[$i]->start);
+        }
+
+        return self::resolve($gaps, false, [], $unavailable);
     }
 
     public function isAvailable(): bool

@@ -1,4 +1,4 @@
-@props(['title' => null])
+@props(['title' => null, 'wide' => false])
 
 <!DOCTYPE html>
 <html lang="{{ str_replace('_', '-', app()->getLocale()) }}">
@@ -44,7 +44,7 @@
             </nav>
         </header>
 
-        <main class="mx-auto max-w-md px-4 py-10">
+        <main @class(['mx-auto px-4 py-10', 'max-w-6xl' => $wide, 'max-w-md' => ! $wide])>
             @if ($title)
                 <h1 class="mb-6 text-2xl font-semibold">{{ $title }}</h1>
             @endif

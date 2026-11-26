@@ -34,6 +34,9 @@
                         </div>
 
                         <div class="flex shrink-0 flex-col items-end gap-1">
+                            <a href="{{ route('employees.agenda', $employee) }}" class="hover:underline">
+                                Agenda
+                            </a>
                             <a href="{{ route('admin.employees.schedule.edit', $employee) }}" class="hover:underline">
                                 Werkrooster bewerken
                             </a>

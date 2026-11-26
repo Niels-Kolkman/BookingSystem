@@ -221,7 +221,7 @@ describe('clock goes back on 25 October', function () {
             ->assertOk()
             ->assertSee('25-10-2026 02:30 (wintertijd)');
 
-        actingAs($employee->user)->get(route('employees.agenda', $employee))
+        actingAs($employee->user)->get(route('employees.agenda', [$employee, 'date' => '2026-10-25']))
             ->assertOk()
             ->assertSee('25-10-2026 02:30 (wintertijd)');
     });

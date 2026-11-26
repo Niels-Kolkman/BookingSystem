@@ -146,7 +146,7 @@ describe('order of lists on the October night', function () {
         $order = ['25-10-2026 02:30 (zomertijd)', '25-10-2026 02:00 (wintertijd)'];
 
         actingAs($customer)->get(route('bookings.index'))->assertOk()->assertSeeInOrder($order);
-        actingAs($employee->user)->get(route('employees.agenda', $employee))->assertOk()->assertSeeInOrder($order);
+        actingAs($employee->user)->get(route('employees.agenda', [$employee, 'date' => '2026-10-25']))->assertOk()->assertSeeInOrder($order);
     });
 });
 
