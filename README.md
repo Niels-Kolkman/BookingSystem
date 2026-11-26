@@ -45,9 +45,34 @@ Other behaviour:
 
    `composer setup` installs the PHP and npm dependencies, copies `.env.example` to `.env` (if there is none yet), generates the app key, runs the migrations and builds the frontend assets.
 
+### Demo data
+
+To try the app straight away, fill the database with the demo salon *Kapsalon De Linde*:
+
+```bash
+php artisan migrate:fresh --seed
+```
+
+This **empties the database** first. The demo seeder (`database/seeders/DemoSeeder.php`) creates:
+
+- 9 services with their own duration, buffer and price. One of them (*Keratinebehandeling*) is inactive.
+- 3 employees with different schedules: Noor (Tuesday to Saturday with a lunch break, late on Thursday), Sem (full-time with a short lunch, Saturday morning) and Lotte (part-time). Daan has left and is inactive.
+- Schedule exceptions around today: a sick day, a dentist visit, a week of holiday, extra hours on a Monday and an afternoon off.
+- 24 customers and about 650 bookings, from four weeks ago to three weeks ahead. Past bookings are completed, no-shows or cancelled. Upcoming ones are requested, confirmed or cancelled. The coming days are busier than the weeks after, so there is still room to book.
+
+Every booking sits in a slot the app itself would offer: within working hours and outside holidays, time off, buffers and other bookings. No customer has two appointments at the same time. The dates are relative to the day you seed, so the demo always looks current. Run it again with `migrate:fresh --seed` to move it along. A plain `db:seed` on a database that already holds the demo changes nothing. Seeding queues no mails, and reminders that are already due count as sent.
+
+All demo accounts use the password `password`:
+
+| Login | Role |
+| --- | --- |
+| `admin@example.com` | Admin (the owner) |
+| `noor@example.com`, `sem@example.com`, `lotte@example.com` | Employee |
+| `klant@example.com` | Customer with past, upcoming and cancelled bookings |
+
 ### Create users
 
-Registering on `/register` always creates a **customer**. There is no screen for creating admins or employees yet, so make them with Tinker (the factories need the dev dependencies; the password is `password`):
+Registering on `/register` always creates a **customer**. There is no screen for creating admins or employees yet. Use the [demo data](#demo-data), or make them with Tinker (the factories need the dev dependencies; the password is `password`):
 
 ```bash
 # An admin
@@ -61,8 +86,6 @@ Then log in as the admin and do three things:
 1. Create a service and tick the employees who perform it (*Beheer → Diensten*).
 2. Give each employee a weekly schedule (*Beheer → Medewerkers en werkroosters*).
 3. Register a customer on `/register` and book.
-
-`php artisan db:seed` only creates a single customer, `test@example.com`.
 
 ### Run
 
@@ -239,4 +262,4 @@ Bookings are stored in UTC. Working hours and exceptions are stored as local wal
 
 ## Screenshots
 
-There are no screenshots yet. To make them, follow [Create users](#create-users): add an admin, two employees with a weekly schedule, a few services and some bookings. Capture `/bookings/create`, `/agenda` (week view) and `/admin/bookings`, and save them in `docs/screenshots/`.
+There are no screenshots yet. To make them, load the [demo data](#demo-data) and capture `/bookings/create`, `/agenda` (week view) and `/admin/bookings`, and save them in `docs/screenshots/`.
