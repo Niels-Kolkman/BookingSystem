@@ -125,7 +125,21 @@ So a reminder goes out between 24 and 23 hours before the start. A missed run is
 
 **Not in scope:** the buffer after a booking is not drawn, and there are no actions (confirm, complete) in the agenda.
 
-## 12. Tooling
+## 12. Admin overview: occupancy of the working time, no-shows of finished appointments
+
+**Decision:** The admin overview (ISSUE-22) is `GET /admin/bookings?from=Y-m-d&until=Y-m-d&employee={id}&status={status}`, linked from *Beheer*. It is a server-rendered page with a filter form, three statistics and a paged list (25 per page, filters kept in the page links).
+- **Period:** local dates, inclusive. A booking belongs to the period when it starts on one of those dates. The default is the current month. Unreadable input is ignored, as on the agenda: an unknown employee or status, a date that does not exist, a date outside 2000-2099 or an array. A reversed period is swapped, and a period longer than 366 days is cut off with a notice.
+- **Statistics** follow the period and the employee, **not the status filter**: a no-show rate computed over only the completed bookings would say nothing.
+  - *Bookings:* the number per status.
+  - *No-shows:* no-shows / (completed + no-shows), the appointments whose outcome is known. Shown as "–" when there are none.
+  - *Occupancy* (`App\Scheduling\Occupancy`): the minutes of working time (weekly schedule, holidays and exceptions, `DaySchedule`) that are covered by a booking that is not cancelled, divided by all working minutes. Requested, confirmed, completed and no-show bookings all count, because their time was reserved. Booked time outside working hours is not counted, and overlaps count once, so the rate stays at or below 100%. The buffer is not counted, as in the agenda. Without an employee filter it adds up the active employees and also shows a row per employee. A chosen inactive employee is measured too.
+- **Queries:** occupancy reuses `Agenda::for()`, so three queries per measured employee whatever the period length. The counts are one grouped query.
+
+**Why:** "Occupancy" only means something against the time that could be booked, and that time already comes from `DaySchedule`. Counting wall-clock minutes inside the working ranges matches the agenda (decision 11). The night the clock changes is off by at most an hour, which is acceptable for a percentage.
+
+**Not in scope:** export, charts, revenue, and statistics per service.
+
+## 13. Tooling
 
 - **Tests:** Pest (on top of PHPUnit).
 - **Static analysis:** Larastan, level 6.

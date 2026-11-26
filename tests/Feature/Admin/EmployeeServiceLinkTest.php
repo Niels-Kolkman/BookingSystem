@@ -374,9 +374,8 @@ describe('edge cases', function () {
 
     it('leaves the employee\'s links to other services alone when updating one service', function () {
         $employee = Employee::factory()->create();
-        // Fixed, different names: service names are unique, and the factory's
-        // random pick could give both services the name the update sends.
-        $edited = Service::factory()->create(['name' => 'Föhnen']);
+        $edited = Service::factory()->create();
+        // Not 'Knippen', the name the form posts: names are unique.
         $untouched = Service::factory()->create(['name' => 'Kleuren']);
         $employee->services()->attach([$edited->id, $untouched->id]);
 
