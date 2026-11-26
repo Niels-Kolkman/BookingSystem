@@ -1,5 +1,6 @@
 <?php
 
+use App\Http\Controllers\Admin\BookingOverviewController;
 use App\Http\Controllers\Admin\EmployeeScheduleController;
 use App\Http\Controllers\Admin\ScheduleExceptionController;
 use App\Http\Controllers\Admin\ServiceController;
@@ -83,6 +84,9 @@ Route::middleware('auth')->group(function () {
 
     Route::middleware('role:admin')->prefix('admin')->name('admin.')->group(function () {
         Route::view('/', 'admin.dashboard')->name('dashboard');
+
+        // Overview with filters, occupancy and no-shows (ISSUE-22).
+        Route::get('bookings', BookingOverviewController::class)->name('bookings.index');
 
         Route::resource('services', ServiceController::class)->except('show');
 
