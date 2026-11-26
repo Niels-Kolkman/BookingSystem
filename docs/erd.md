@@ -163,6 +163,9 @@ A booking's status follows a small state machine (ISSUE-18), defined in `Booking
 - **Kept:** status, notes and the snapshot of `duration_minutes` and `price_cents`; the buffer is the service's current one, as for every slot. `reminder_sent_at` is reset so the new time gets a reminder (ISSUE-20).
 - **Concurrency:** locks the employee, then the customer (as `CreateBooking`), then the booking row. A new booking or another move for the same employee or customer waits; a cancellation of the same booking waits for the move or the other way round, and is then judged on the fresh row.
 
+### Reminders
+`reminder_sent_at` is set when a reminder is claimed for the booking (ISSUE-20, [decisions.md](decisions.md) section 10). The hourly `bookings:send-reminders` command only picks up requested or confirmed bookings that start within `booking.reminder_hours_before` hours (env `BOOKING_REMINDER_HOURS_BEFORE`, default 24) and have no `reminder_sent_at`. It sets the column with a conditional update (`... WHERE reminder_sent_at IS NULL`), so only one run can claim a booking and the customer gets one reminder per appointment time. Moving the booking resets it.
+
 ### Which employee can perform which service
 `employee_service` links employees to the services they can perform (ISSUE-8). Admins set the links on the service form; an unchecked employee is unlinked. The form only accepts existing employees, each once, and the composite primary key rejects duplicates in the database as well.
 

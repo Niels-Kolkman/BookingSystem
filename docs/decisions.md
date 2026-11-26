@@ -90,9 +90,27 @@ Short records of the choices that shape this project, and why they were made.
 
 **Why:** The issue asks for queued, not synchronous, sending. A slow or broken mail server must not slow down or break booking; with the mail in a separate job, a mail failure is retried and never undoes the booking. Making the job, not the mailable, the queued unit lets it check the booking's state at send time. UTC in the .ics file reuses decision 3 and avoids shipping VTIMEZONE rules.
 
-**Not in scope:** mails for moving or cancelling a booking, and the reminder (ISSUE-20). The stable UID and `SEQUENCE` are there so they can send an updated or cancelled event later.
+**Not in scope:** mails for moving or cancelling a booking. The reminder is decision 10. The stable UID and `SEQUENCE` are there so they can send an updated or cancelled event later.
 
-## 10. Tooling
+## 10. Reminder: an hourly scan that claims each booking once
+
+**Decision:** The command `bookings:send-reminders` runs every hour (`routes/console.php`, `withoutOverlapping()`; in production run `php artisan schedule:work` or a cron calling `schedule:run` every minute, next to a queue worker). It calls `App\Bookings\QueueBookingReminders` (ISSUE-20), which queues `App\Jobs\SendBookingReminder` for every booking that:
+- still takes up time (requested or confirmed),
+- starts after now and at most `booking.reminder_hours_before` real hours from now (default 24),
+- has no `reminder_sent_at`,
+- was made before its reminder moment. Someone who books less than 24 hours ahead just got the confirmation, so a second mail would only repeat it.
+
+So a reminder goes out between 24 and 23 hours before the start. A missed run is caught up by the next one, until the appointment starts.
+- **Never twice:** each booking is claimed with one conditional `UPDATE bookings SET reminder_sent_at = now WHERE id = ? AND reminder_sent_at IS NULL AND status IN (...) AND starts_at = ?`. Only the run whose update changed the row queues the job. Two runs at the same time (overlap, two servers, a manual run) cannot both claim it.
+- **Queue down:** if dispatching the job throws, the claim is released, so the next run tries again.
+- **Moving** a booking (decision 8) empties `reminder_sent_at`, so the new time gets its own reminder. The job carries the start it was claimed for. The worker loads the booking fresh and sends nothing if it is no longer requested or confirmed, if its reminder was reset, if it now starts at another time, or if it has already started. The reminder for the new time is then the only one.
+- **Retries:** as for the confirmation: 5 tries, then `failed_jobs`. The claim stays, so a failed reminder is not sent again by a later run (`php artisan queue:retry` does).
+
+**Why:** The issue allows a daily or hourly job. A daily run would send reminders anywhere from 24 to 48 hours ahead, while hourly keeps them close to "24 hours before". Marking the booking before queueing, with a conditional update, makes "at most once" a property of the database row. It does not depend on the scheduler's overlap lock or on how often the command runs. The `(status, starts_at, reminder_sent_at)` index (docs/erd.md) serves the scan.
+
+**Trade-off:** marking before sending means a reminder whose job finally fails is lost rather than sent twice. The issue's "no double mails" is the stronger requirement, and the failure is visible in `failed_jobs`.
+
+## 11. Tooling
 
 - **Tests:** Pest (on top of PHPUnit).
 - **Static analysis:** Larastan, level 6.
