@@ -151,13 +151,23 @@ final class LocalTime
     private static function lastTransitionBefore(CarbonImmutable $moment): CarbonImmutable
     {
         $timestamp = $moment->getTimestamp();
-        $transitions = (new DateTimeZone(self::TIMEZONE))->getTransitions($timestamp - 86400, $timestamp);
+
+        // The end of the window must lie after $moment: for the wall-clock time
+        // 02:00 the moment is exactly the jump, and whether a change at the very
+        // end of the window is returned differs between PHP builds.
+        $transitions = (new DateTimeZone(self::TIMEZONE))->getTransitions($timestamp - 86400, $timestamp + 1);
 
         // The first entry is the state at the start of the window, not a change.
-        if (count($transitions) < 2) {
+        // Only changes at or before $moment count.
+        $changes = array_filter(
+            array_slice($transitions, 1),
+            static fn (array $transition): bool => $transition['ts'] <= $timestamp,
+        );
+
+        if ($changes === []) {
             throw new UnexpectedValueException('No clock change found before '.$moment->toIso8601String().'.');
         }
 
-        return CarbonImmutable::createFromTimestamp($transitions[array_key_last($transitions)]['ts'], 'UTC');
+        return CarbonImmutable::createFromTimestamp(max(array_column($changes, 'ts')), 'UTC');
     }
 }
