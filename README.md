@@ -260,6 +260,10 @@ Bookings are stored in UTC. Working hours and exceptions are stored as local wal
 | `tests/Unit`, `tests/Feature`, `tests/Concurrency` | Pest tests |
 | `docs/` | [erd.md](docs/erd.md), [decisions.md](docs/decisions.md) |
 
+## Demo video
+
+[docs/demo/booking-flow.mp4](docs/demo/booking-flow.mp4) (37 s) shows two customers taking the same slot at the same moment: one gets it, the other gets "net bezet" (HTTP 409) and books the next free time. Captions explain the locking and the UTC/local time handling. `docs/demo/record-booking-flow.cjs` records it again with Playwright on the demo data.
+
 ## Screenshots
 
 There are no screenshots yet. To make them, load the [demo data](#demo-data) and capture `/bookings/create`, `/agenda` (week view) and `/admin/bookings`, and save them in `docs/screenshots/`.
