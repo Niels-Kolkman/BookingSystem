@@ -18,6 +18,12 @@
 | customers cancel until the appointment starts; negative values count
 | as 0.
 |
+| `reminder_hours_before` is how long before the start the customer gets a
+| reminder mail (ISSUE-20). The hourly `bookings:send-reminders` command
+| picks up every appointment that starts within this many real hours and
+| has had no reminder yet, so with 24 a reminder goes out between 24 and 23
+| hours before the start. Values below 1 count as 1.
+|
 */
 
 return [
@@ -25,5 +31,7 @@ return [
     'slot_interval' => (int) env('BOOKING_SLOT_INTERVAL', 15),
 
     'cancellation_window_hours' => max(0, (int) env('BOOKING_CANCELLATION_WINDOW_HOURS', 24)),
+
+    'reminder_hours_before' => max(1, (int) env('BOOKING_REMINDER_HOURS_BEFORE', 24)),
 
 ];
