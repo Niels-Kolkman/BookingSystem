@@ -22,6 +22,15 @@ class AgendaController extends Controller
     public const VIEW_WEEK = 'week';
 
     /**
+     * Dates the agenda opens, inclusive. Outside this range a date falls
+     * back to today: far-off years only come from edited URLs, and years
+     * past 9999 cannot be read back by Carbon.
+     */
+    public const FIRST_DATE = '2000-01-01';
+
+    public const LAST_DATE = '2099-12-31';
+
+    /**
      * Sends an employee to their own agenda, keeping `view` and `date`.
      * Only reachable with the employee role (route middleware). An employee
      * login without a profile has no agenda yet.
@@ -46,7 +55,8 @@ class AgendaController extends Controller
     /**
      * `?view=day|week` (default week) and `?date=Y-m-d` (default today,
      * local). A week runs Monday to Sunday around the date. Anything else in
-     * the query string falls back to the defaults, like the booking page.
+     * the query string, or a date outside FIRST_DATE-LAST_DATE, falls back
+     * to the defaults, like the booking page.
      *
      * Access is checked by the `can:viewAgenda,employee` route middleware.
      */
@@ -54,7 +64,10 @@ class AgendaController extends Controller
     {
         $view = $request->query('view') === self::VIEW_DAY ? self::VIEW_DAY : self::VIEW_WEEK;
         $today = LocalTime::midnight(LocalTime::toLocal(CarbonImmutable::now()));
-        $date = LocalTime::parseDate($request->query('date')) ?? $today;
+        $date = LocalTime::parseDate($request->query('date'));
+        if ($date === null || $date->format('Y-m-d') < self::FIRST_DATE || $date->format('Y-m-d') > self::LAST_DATE) {
+            $date = $today;
+        }
 
         if ($view === self::VIEW_WEEK) {
             $from = $date->subDays((int) $date->format('N') - 1);
